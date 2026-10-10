@@ -54,7 +54,7 @@ int main(){
  TrackFX_Show=+[](MediaTrack*,int f,int){selectedFx=f;};
  SetOnlyTrackSelected=+[](MediaTrack* t){selected=t;};
  GetTouchedOrFocusedFX=+[](int mode,int* ti,int* item,int* take,int* f,int* p){*ti=mode?focusedTrack:0;*item=-1;*take=-1;*f=mode?focusedFx:lastFx;*p=mode?0:lastParam;return mode?focusActive:lastTouched;};
- int err=0;Surface s(&err);assert(err==0);assert(output.sent.back()==roto::sysex(10,1));
+ int err=0;Surface s(&err);assert(err==0);assert(std::string(s.GetConfigString())=="0");assert(output.sent.back()==roto::sysex(10,1));
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(changes==0);
  input.q.push(roto::sysex(10,2));pump(s);assert(output.sent.back()==roto::sysex(10,3,{2}));
  input.q.push(roto::sysex(10,12));pump(s);assert(output.sent.back()==roto::sysex(10,13));

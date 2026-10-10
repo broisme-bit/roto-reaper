@@ -340,12 +340,13 @@ public:
    if(ac==1) in=CreateMIDIInput(a);
    if(bc==1) out=CreateMIDIOutput(b,false,nullptr);
    if(err)*err=(!in?1:0)|(!out?2:0);
-   if(in && out){in->start();sx(10,1);retry=time_precise();note("v0.2.6 unity indent alignment; Ports opened; DAW STARTED sent");}else note("Port open failed or ambiguous: require exactly one Roto-Control input/output");
+   if(in && out){in->start();sx(10,1);retry=time_precise();note("v0.2.7 configuration persistence; Ports opened; DAW STARTED sent");}else note("Port open failed or ambiguous: require exactly one Roto-Control input/output");
  }
  ~Surface(){endPluginEdits();if(in){in->stop();in->Destroy();}if(out)out->Destroy();if(log)std::fclose(log);}
  const char* GetTypeString()override{return "ROTOREAPER";}
- const char* GetDescString()override{return "Roto-Control REAPER (Bitwig protocol, experimental v0.2.6)";}
- const char* GetConfigString()override{return "";}
+ const char* GetDescString()override{return "Roto-Control REAPER (Bitwig protocol, experimental v0.2.7)";}
+ // Keep a configuration token so REAPER can reload the saved surface entry.
+ const char* GetConfigString()override{return "0";}
  bool GetTouchState(MediaTrack* t,int pan)override{if(plugin || (pan!=0 && pan!=1))return false;for(int i=0;i<8;++i)if(touch[i] && touched[i]==t && ((pan==1)==(knobMode==1)))return true;return false;}
  void SetSurfaceVolume(MediaTrack* t,double value)override{if(t)hostVolumes[t]=value;}
  void SetSurfacePan(MediaTrack* t,double value)override{if(t)hostPans[t]=value;}
@@ -382,5 +383,5 @@ static IReaperControlSurface* create(const char*,const char*,int* err){return ne
 // REAPER calls this callback unconditionally when selecting the surface type.
 // This prototype has automatic port detection and no custom configuration panel.
 static HWND showConfig(const char*,HWND,const char*) { return nullptr; }
-static reaper_csurf_reg_t reg={"ROTOREAPER","Roto-Control REAPER (Bitwig protocol, experimental v0.2.6)",create,showConfig};
+static reaper_csurf_reg_t reg={"ROTOREAPER","Roto-Control REAPER (Bitwig protocol, experimental v0.2.7)",create,showConfig};
 extern "C" REAPER_PLUGIN_DLL_EXPORT int REAPER_PLUGIN_ENTRYPOINT(REAPER_PLUGIN_HINSTANCE,reaper_plugin_info_t* rec){if(!rec)return 0;if(rec->caller_version!=REAPER_PLUGIN_VERSION || REAPERAPI_LoadAPI(rec->GetFunc))return 0;return rec->Register("csurf",&reg);}
