@@ -1,0 +1,100 @@
+# Roto-Control for REAPER — v0.2.6 experimental beta
+
+An independent native REAPER control-surface extension for Melbourne Instruments Roto-Control. Uses the published Bitwig protocol personality (DAW ID 02); no Bitwig installation, bridge app or firmware modification is required. Not an official Melbourne Instruments or Cockos integration.
+
+## Status and known touch issue
+
+Tested by one user on Apple Silicon macOS, REAPER 7.82, firmware 3.2.1 and 3.3.0, SysEx API 1.6. Windows and Intel Mac builds are not validated.
+
+**Continuous knob touch can drop out before the hand is released. Touch automation holds are currently unreliable.** Incoming touch OFF events were reproduced outside REAPER using Snoize MIDI Monitor with REAPER closed, direct USB data to the Mac and the supplied wall adapter. One continuous hold over 20 seconds reported OFF after 2.01 seconds. This establishes an issue independent of this extension in that test, but does not determine the hardware, firmware or electrical cause. Reported to Melbourne Instruments; awaiting guidance. No artificial release delay is applied.
+
+The extension suppresses motor feedback while its received touch state is ON. An early OFF allows feedback and can cause unwanted automation changes. Begin testing in Trim/Read with playback stopped, using a disposable project. Do not rely on Touch holds for important automation recordings.
+
+## Features
+
+- MIX all-tracks: volume, pan, mute, solo and record arm; banks of eight.
+- Track names and approximate custom colors using the controller's fixed palette.
+- 14-bit motor feedback, including volume/pan envelope playback through REAPER surface callbacks.
+- Stereo MIX peak meters, up to 20 Hz, with yellow at -12 dBFS and red at 0 dBFS.
+- Master track view; ordinary return tracks stay in the normal track list.
+- PLUGIN: selected-track insert FX, focused-plugin selection, learned knobs/buttons, multiple pages, plugin enable/disable and lock.
+- Controller-stored plugin mapping recall across projects. Hardware checks included ReaEQ, Pultec and Pro-Q 4.
+- Play, Stop and Record transport.
+- Diagnostic log and automatic detection of one Roto-Control MIDI input/output.
+
+## Install on Apple Silicon macOS
+
+If the release has a macOS ARM64 binary asset, unzip it and use the included `reaper_roto.dylib`. Otherwise build from source below. ARM64 requires native Apple Silicon REAPER, not REAPER running under Rosetta.
+
+1. In REAPER, choose **Options > Show REAPER resource path in explorer/finder**.
+2. Quit REAPER. Copy `reaper_roto.dylib` into that resource folder's **UserPlugins** directory. Create the directory if needed. Keep only one copy of this extension there.
+3. Close other applications controlling Roto-Control. Connect the controller before starting REAPER.
+4. In REAPER's MIDI device preferences, disable normal input, control-input and output use of Roto-Control so the control surface owns the ports. Disable other surfaces using the same device.
+5. In **Preferences > Control/OSC/web**, add **Roto-Control REAPER (Bitwig protocol, experimental v0.2.6)**. Add it only once.
+6. On the controller select **MIX > all tracks**, **Level** and **Mute**. A Bitwig identity is expected: it is the protocol personality.
+
+There is no MIDI port selector. The extension requires exactly one input and output containing `Roto-Control`; restore original names if you have aliased them. Multiple matching devices are rejected. If absent from the surface list, check architecture, build output and installation location. Reconnection is not guaranteed: restart REAPER or remove/re-add the surface after reconnecting.
+
+### Build from source on macOS
+
+Install Apple's Command Line Tools if needed: `xcode-select --install`.
+
+Open Terminal, type `cd `, drag the unzipped project folder into Terminal, press Return, then run:
+
+```sh
+bash build-mac.sh
+```
+
+This runs the tests, builds `build/reaper_roto.dylib` for the current Mac architecture, and applies an ad-hoc signature. No CMake or extra dependency downloads are required. Intel compilation is possible in principle, but has not been tested.
+
+### Remove or roll back
+
+Remove this surface from **Preferences > Control/OSC/web**, quit REAPER, then remove `UserPlugins/reaper_roto.dylib`. To roll back, install a previous binary with REAPER closed. Restore your MIDI device preferences if you want ordinary MIDI use afterward. Removing the extension does not erase controller-stored mappings.
+
+## Plugin mappings
+
+Select a track and open/focus an insert FX window, then switch Roto-Control to PLUGIN. Use LEARN on the controller to assign parameters. The controller stores assignments and recalls them when the same plugin identity is selected again, including in another project.
+
+Mappings learned with this extension have a separate REAPER identity. Mappings from other integrations are not automatically imported. VST2, VST3 and AU variants may require separate learning. Plugin updates that change parameter identities may also require relearning. The extension sends no serial configuration commands.
+
+## Quick beta check and feedback
+
+Start in a disposable project with playback stopped, Trim/Read automation and monitor volume low.
+
+1. Create two tracks. Verify names/colors and volume in both directions.
+2. Test pan and mute/solo/arm buttons.
+3. Create ten tracks; bank to tracks 9–10 and back. Verify unused screens clear.
+4. Play audio and verify meters. Test a learned plugin and recall in another project.
+
+The log is `roto-reaper.log` in the REAPER resource folder. It should show `Ports opened`, `Ping received`, `ROTO-DAW CONNECTED`, firmware and API versions. It is recreated when the surface is instantiated, so save a copy before restarting or re-adding the surface.
+
+For a report, provide macOS and REAPER versions, Mac architecture, firmware/API versions, extension version, connection/power arrangement, reproduction steps and the saved log. Review the log for track/plugin names before posting publicly. For touch reports, say whether your hand stayed on the knob and how long the hold lasted.
+
+## Limitations and future work
+
+Sends, MIX single-track view, serial setup/custom haptics editing, automatic parameter assignment, input/take/container FX, user-selectable MIDI ports and comprehensive reconnect recovery are not implemented. Only the first 127 insert FX are listed. Unsupported Send/single-track modes ignore knob input; return to all-tracks to resume control.
+
+Plugin automation has received limited user testing; explicit plugin automation touch reporting is not implemented. Name/color refresh is polled and the complete REAPER track list is used, rather than mixer visibility. Track volume uses silence at minimum, -60 to 0 dB below unity and 0 to +12 dB above unity. The physical unity indent was aligned to measured raw position 13004; this does not follow REAPER's configurable visual fader taper. Pan is linear.
+
+## Contributing and Windows
+
+Original extension code is C++17 under MIT. Contributions, especially a Windows port and additional hardware testing, are welcome. Protocol and mapping logic should be reusable, but a Windows DLL build and host/MIDI validation are still required. The current CMake file uses GCC/Clang compiler flags; it is not a validated MSVC build recipe. Do not describe a Windows build as supported until it is tested.
+
+Optional CMake workflow for supported compilers:
+
+```sh
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+Linux builds and mock tests check protocol and integration behavior; they do not establish working Linux hardware support. See VALIDATION.md for current validation and docs/DEVELOPMENT-HISTORY.md for historical development notes, whose old pending-test instructions are superseded by this README.
+
+## References and licensing
+
+- Protocol and official integrations: https://github.com/Melbourne-Instruments/roto_control
+- API references: SysEx v1.6 and Serial v1.3 in the upstream project's docs directory.
+- REAPER SDK: https://github.com/justinfrankel/reaper-sdk
+- WDL: https://github.com/justinfrankel/WDL
+
+Melbourne Instruments source was consulted, not copied into the extension. Original extension source is MIT licensed. Bundled SDK/WDL files retain their upstream notices and licenses.
