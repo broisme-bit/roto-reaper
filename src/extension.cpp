@@ -267,8 +267,8 @@ class Surface:public IReaperControlSurface {
    }
  }
  roto::Bytes learnMessage(int p,int wireIndex){
-   std::vector<std::string> labels;double step=0,small=0,large=0;bool toggle=false;
-   if(TrackFX_GetParameterStepSizes(fxTrack,fx,p,&step,&small,&large,&toggle)){
+   std::vector<std::string> labels;double step=0,smallStep=0,largeStep=0;bool toggle=false;
+   if(TrackFX_GetParameterStepSizes(fxTrack,fx,p,&step,&smallStep,&largeStep,&toggle)){
      int steps=toggle?2:0;
      if(!toggle && std::isfinite(step) && step>0 && step<=1){double n=1/step;if(n>=1 && n<=15 && std::abs(n-std::round(n))<1e-5)steps=(int)std::round(n)+1;}
      for(int i=0;i<steps;++i){char text[512]={};if(!TrackFX_FormatParamValueNormalized(fxTrack,fx,p,double(i)/(steps-1),text,sizeof(text))){labels.clear();break;}labels.emplace_back(text);}
