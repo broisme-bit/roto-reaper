@@ -1,5 +1,7 @@
 # Current validation — 2026-10-10
 
+v0.2.7 configuration persistence passed user restart and multiple-project checks. v0.3.0 all-tracks send levels passed user Apple Silicon hardware checks: send input and motor feedback, destination routing, banking, removal and Level/Pan/plugin/restart regressions. Send automation remains unvalidated. Windows/Intel build configuration and CI are prepared; CI results and volunteer hardware testing are pending. Automated surface tests cover destination names (including a second names page), shared-target resolution with different local send orders, hardware-output offsets, missing routes, input and motor feedback, touch suppression/edit completion, banking, routing removal, buttons and return to track Level. Protocol and existing surface regressions pass.
+
 The records below are historical development notes. Their pending-test statements describe the state at the time; use this summary and README.md for the current release status.
 
 User hardware checks on Apple Silicon macOS / REAPER 7.82 passed banking, track colors/names, meters, basic controls, plugin learn/recall, page isolation, instance selection/lock, removal/Undo, and measured unity-indent alignment. Firmware 3.2.1 and 3.3.0 reported SysEx API 1.6. Volume Read-mode motor playback and limited ReaEQ plugin automation were exercised.

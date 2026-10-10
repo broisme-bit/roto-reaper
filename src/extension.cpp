@@ -13,6 +13,10 @@
 #define REAPERAPI_WANT_CountTracks
 #define REAPERAPI_WANT_GetTrack
 #define REAPERAPI_WANT_GetMasterTrack
+#define REAPERAPI_WANT_GetTrackNumSends
+#define REAPERAPI_WANT_GetSetTrackSendInfo
+#define REAPERAPI_WANT_GetTrackSendUIVolPan
+#define REAPERAPI_WANT_SetTrackSendUIVol
 #define REAPERAPI_WANT_GetTrackName
 #define REAPERAPI_WANT_Track_GetPeakInfo
 #define REAPERAPI_WANT_GetTrackColor
@@ -72,6 +76,10 @@ class Surface:public IReaperControlSurface {
  std::array<int,8> knobParams{{-1,-1,-1,-1,-1,-1,-1,-1}},switchParams{{-1,-1,-1,-1,-1,-1,-1,-1}};
  int baselineTrack=-2,baselineFx=-1,baselineParam=-1;double baselineValue=0;
  bool connected=false, mix=false, supported=false, dirty=true, master=false;
+ int sendIndex=0,sendNameStart=0;double sendPoll=0;bool sendDirty=true;
+ std::vector<MediaTrack*> sendDestinations;std::vector<std::string> sendNames;
+ std::array<MediaTrack*,8> sendEditSource{},sendEditDestination{},touchSendDestination{};
+ std::array<double,8> sendEditValue{};
  int bank=0,knobMode=0,buttonMode=0,publishedCount=-1,publishedBank=-1; bool publishedMaster=false;
  std::array<std::string,8> names{}; std::array<int,8> colors{}; double retry=0,refresh=0;
  std::array<int,8> buttons{{-1,-1,-1,-1,-1,-1,-1,-1}};
@@ -86,7 +94,7 @@ class Surface:public IReaperControlSurface {
  MediaTrack* track(int i){return master?(i==0?GetMasterTrack(nullptr):nullptr):GetTrack(nullptr,bank+i);}
  void send(roto::Bytes b){if(!out)return;std::vector<unsigned char> mem(sizeof(MIDI_event_t)+b.size());auto* e=(MIDI_event_t*)mem.data();e->frame_offset=0;e->size=(int)b.size();std::memcpy(e->midi_message,b.data(),b.size());out->SendMsg(e,-1);}
  void sx(int g,int c,roto::Bytes b={}){send(roto::sysex(g,c,b));}
- void clearTouch(){touch.fill(false);touched.fill(nullptr);}
+ void clearTouch(){endSendEdits();touch.fill(false);touched.fill(nullptr);touchSendDestination.fill(nullptr);}
  void resetMeters(){meterLast.fill(-1);meterPeaks.fill(0);meterNext=0;}
  void reset(){resetMeters();dirty=true;last.fill(-1);buttons.fill(-1);haveHi.fill(false);}
  void details(){
@@ -99,7 +107,7 @@ class Surface:public IReaperControlSurface {
      names[i]=name;colors[i]=col;
    }
    if(changed){
-     metadata.clear();resetMeters();
+     metadata.clear();resetMeters();sendDirty=true;
      roto::Bytes b;roto::word(b,count);metadata.push_back(roto::sysex(10,4,b));
      b.clear();roto::word(b,bank);metadata.push_back(roto::sysex(10,5,b));
      for(int i=0;i<8;++i){if(!track(i))continue;
@@ -114,6 +122,60 @@ class Surface:public IReaperControlSurface {
      last.fill(-1);buttons.fill(-1);metadataNext=time_precise();
    }
    publishedCount=count;publishedBank=bank;publishedMaster=master;dirty=false;
+ }
+
+ MediaTrack* sendDestination(){return sendIndex>=0 && sendIndex<(int)sendDestinations.size()?sendDestinations[sendIndex]:nullptr;}
+ int route(MediaTrack* source,MediaTrack* destination){
+   if(!source || !destination || !ValidatePtr2(nullptr,source,"MediaTrack*") || !ValidatePtr2(nullptr,destination,"MediaTrack*"))return -1;
+   for(int i=0;i<GetTrackNumSends(source,0);++i)if(GetSetTrackSendInfo(source,0,i,"P_DESTTRACK",nullptr)==destination)return i;
+   return -1;
+ }
+ void endSendEdit(int slot){
+   int index=route(sendEditSource[slot],sendEditDestination[slot]);
+   if(index>=0)SetTrackSendUIVol(sendEditSource[slot],GetTrackNumSends(sendEditSource[slot],1)+index,sendEditValue[slot],1);
+   sendEditSource[slot]=sendEditDestination[slot]=nullptr;
+ }
+ void endSendEdits(){for(int i=0;i<8;++i)if(sendEditSource[i])endSendEdit(i);}
+ void writeSend(int slot,double value,bool instant=false){
+   auto* source=track(slot);auto* destination=sendDestination();
+   if(touch[slot] && (touched[slot]!=source || touchSendDestination[slot]!=destination))return;
+   int index=route(source,destination);if(index<0)return;
+   if(SetTrackSendUIVol(source,GetTrackNumSends(source,1)+index,value,instant || !touch[slot]?-1:0)){
+     if(touch[slot] && !instant){sendEditSource[slot]=source;sendEditDestination[slot]=destination;sendEditValue[slot]=value;}
+     char msg[140];std::snprintf(msg,sizeof(msg),"Send level: knob=%d destination=%d route=%d volume=%.9f",slot+1,sendIndex,index,value);note(msg);
+   }
+ }
+ void queueSendNames(int start){
+   start=(std::clamp(start,0,127)/8)*8;roto::Bytes b{(unsigned char)start};
+   for(int i=0;i<8;++i)roto::text(b,start+i<(int)sendNames.size()?sendNames[start+i]:"");
+   metadata.erase(std::remove_if(metadata.begin(),metadata.end(),[](const roto::Bytes& b){return b.size()>=8 && b[5]==12 && b[6]==8;}),metadata.end());
+   metadata.push_back(roto::sysex(12,8,b));metadataNext=time_precise();
+ }
+ void syncSends(double now){
+   if(!sendDirty && now<sendPoll)return;
+   sendPoll=now+.25;
+   // Bitwig uses shared destination buses, not each source's local send slot.
+   std::vector<MediaTrack*> destinations;std::vector<std::string> labels;
+   std::vector<MediaTrack*> used;
+   for(int i=0;i<CountTracks(nullptr);++i){auto* source=GetTrack(nullptr,i);
+     for(int j=0;j<GetTrackNumSends(source,0);++j){auto* destination=(MediaTrack*)GetSetTrackSendInfo(source,0,j,"P_DESTTRACK",nullptr);
+       if(destination && std::find(used.begin(),used.end(),destination)==used.end())used.push_back(destination);
+     }
+   }
+   for(int i=0;i<CountTracks(nullptr) && destinations.size()<127;++i){auto* t=GetTrack(nullptr,i);
+     if(std::find(used.begin(),used.end(),t)==used.end())continue;
+     char name[512]={};GetTrackName(t,name,sizeof(name));destinations.push_back(t);labels.emplace_back(name);
+   }
+   bool topology=destinations!=sendDestinations;
+   if(topology)endSendEdits();
+   if(sendDirty || topology || labels!=sendNames){
+     sendDestinations=std::move(destinations);sendNames=std::move(labels);
+     metadata.erase(std::remove_if(metadata.begin(),metadata.end(),[](const roto::Bytes& b){return b.size()>=8 && b[5]==12 && b[6]==3;}),metadata.end());
+     metadata.push_back(roto::sysex(12,3,{(unsigned char)sendNames.size()}));queueSendNames(sendNameStart);
+     if(topology)last.fill(-1);
+     char msg[100];std::snprintf(msg,sizeof(msg),"Send destinations queued: count=%zu selected=%d",sendNames.size(),sendIndex);note(msg);
+   }
+   sendDirty=false;
  }
 
  bool validFxTrack(){return fxTrack && ValidatePtr2(nullptr,fxTrack,"MediaTrack*");}
@@ -291,9 +353,10 @@ class Surface:public IReaperControlSurface {
      if(g==10 && c==14 && n>=11){char v[80];std::snprintf(v,sizeof(v),"Firmware %u.%u.%u",p[7],p[8],p[9]);note(v);}
      if(g==10 && c==6 && n>=10){bank=(roto::word(p+7)/8)*8;reset();char msg[100];std::snprintf(msg,sizeof(msg),"Bank requested: tracks %d-%d",bank+1,bank+8);note(msg);}
      if(g==10 && c==9 && n>=10){auto* t=master?GetMasterTrack(nullptr):GetTrack(nullptr,roto::word(p+7));if(t)SetOnlyTrackSelected(t);}
-     if(g==11){pluginEvent(c,p,n);return;}
-     if(g==12 && c==1 && n>=12){endPluginEdits();clearBindings();plugin=false;learning=false;metadata.clear();publishedCount=-1;mix=true;master=p[7]!=0;knobMode=p[8];buttonMode=p[9];char msg[140];std::snprintf(msg,sizeof(msg),"MIX payload: master=%u knob=%u button=%u send=%u",p[7],p[8],p[9],p[10]);note(msg);supported=knobMode<2;reset();if(supported){sx(12,11,{(unsigned char)roto::meterLevel(std::pow(10.0,-12.0/20)),(unsigned char)roto::meterLevel(1.0)});note("Stereo MIX meters enabled: 20 Hz, -60 to +6 dBFS; yellow -12, red 0 dBFS");}note(supported?"MIX all-tracks active":"SEND mode unsupported; controls ignored");}
-     if(g==12 && c==2){endPluginEdits();clearBindings();plugin=false;learning=false;metadata.clear();mix=false;reset();note("Single-track MIX unsupported in v0.1");}
+     if(g==11){endSendEdits();pluginEvent(c,p,n);return;}
+     if(g==12 && c==1 && n>=12){endSendEdits();endPluginEdits();clearBindings();plugin=false;learning=false;metadata.clear();publishedCount=-1;mix=true;master=p[7]!=0;knobMode=p[8];buttonMode=p[9];sendIndex=p[10];sendNameStart=(sendIndex/8)*8;sendDirty=true;char msg[140];std::snprintf(msg,sizeof(msg),"MIX payload: master=%u knob=%u button=%u send=%u",p[7],p[8],p[9],p[10]);note(msg);supported=knobMode<=2;reset();if(supported){sx(12,11,{(unsigned char)roto::meterLevel(std::pow(10.0,-12.0/20)),(unsigned char)roto::meterLevel(1.0)});note("Stereo MIX meters enabled: 20 Hz, -60 to +6 dBFS; yellow -12, red 0 dBFS");}note(supported?"MIX all-tracks active":"Unknown knob mode; controls ignored");}
+     if(g==12 && c==7 && n>=9){sendNameStart=(p[7]/8)*8;if(mix && supported){syncSends(time_precise());queueSendNames(sendNameStart);}return;}
+     if(g==12 && c==2){endSendEdits();endPluginEdits();clearBindings();plugin=false;learning=false;metadata.clear();mix=false;reset();note("Single-track MIX unsupported in v0.1");}
      if(g==12 && c==5 && n>=9){master=p[7]!=0;reset();}
      if(g==10 && c==10){int s=GetPlayState();sx(10,11,{(unsigned char)((s&1)!=0),(unsigned char)((s&2)!=0),(unsigned char)((s&4)!=0),0,(unsigned char)(GetSetRepeat(-1)!=0),0,0,0});}
      return;
@@ -301,7 +364,7 @@ class Surface:public IReaperControlSurface {
    if(!connected || n!=3 || p[0]!=191)return;
    int cc=p[1],v=p[2];
    if(cc>=28 && cc<=35 && v){if(cc==28)CSurf_OnPlay();if(cc==29)CSurf_OnStop();if(cc==30)CSurf_OnRecord();return;}
-   if(cc>=52 && cc<=59){int i=cc-52;touch[i]=v!=0;touched[i]=touch[i] && !plugin?track(i):nullptr;
+   if(cc>=52 && cc<=59){int i=cc-52;if(!v && sendEditSource[i])endSendEdit(i);touch[i]=v!=0;touchSendDestination[i]=touch[i] && !plugin && knobMode==2?sendDestination():nullptr;touched[i]=touch[i] && !plugin?track(i):nullptr;
      if(plugin && !touch[i] && validFx() && knobParams[i]>=0)TrackFX_EndParamEdit(fxTrack,fx,knobParams[i]);
      char msg[100];std::snprintf(msg,sizeof(msg),"Knob %d touch %s (RX CC=%d value=%d)",i+1,touch[i]?"ON":"OFF",cc,v);note(msg);return;}
    if(plugin){
@@ -316,7 +379,8 @@ class Surface:public IReaperControlSurface {
    // Appendix B.1 CC 64: knob index requesting the MIX unity/default level.
    // The official Ableton integration treats the value as an index, not a level.
    if(cc==64){
-     if(knobMode!=0 || v>=8)return;
+     if(v>=8)return;
+     if(knobMode!=0)return;
      auto* t=track(v);if(!t)return;
      double val=CSurf_OnVolumeChange(t,1.0,false);hostVolumes[t]=val;
      CSurf_SetSurfaceVolume(t,val,this);last[v]=-1;
@@ -324,6 +388,7 @@ class Surface:public IReaperControlSurface {
    }
    if(cc>=12 && cc<=19){hi[cc-12]=v;haveHi[cc-12]=true;return;}
    if(cc>=44 && cc<=51){int i=cc-44;if(!haveHi[i])return;auto* t=track(i);if(!t)return;double x=((hi[i]<<7)|v)/16383.0;
+     if(knobMode==2){writeSend(i,roto::volume(x));return;}
      if(knobMode==1){double val=CSurf_OnPanChange(t,2*x-1,false);hostPans[t]=val;CSurf_SetSurfacePan(t,val,this);}else{double val=CSurf_OnVolumeChange(t,roto::volume(x),false);hostVolumes[t]=val;CSurf_SetSurfaceVolume(t,val,this);}return;}
    if(cc>=20 && cc<=27 && v){auto* t=track(cc-20);if(!t)return;
      if(buttonMode==0)CSurf_SetSurfaceMute(t,CSurf_OnMuteChange(t,-1),this);
@@ -340,24 +405,24 @@ public:
    if(ac==1) in=CreateMIDIInput(a);
    if(bc==1) out=CreateMIDIOutput(b,false,nullptr);
    if(err)*err=(!in?1:0)|(!out?2:0);
-   if(in && out){in->start();sx(10,1);retry=time_precise();note("v0.2.7 configuration persistence; Ports opened; DAW STARTED sent");}else note("Port open failed or ambiguous: require exactly one Roto-Control input/output");
+   if(in && out){in->start();sx(10,1);retry=time_precise();note("v0.3.0 send levels; Ports opened; DAW STARTED sent");}else note("Port open failed or ambiguous: require exactly one Roto-Control input/output");
  }
- ~Surface(){endPluginEdits();if(in){in->stop();in->Destroy();}if(out)out->Destroy();if(log)std::fclose(log);}
+ ~Surface(){endSendEdits();endPluginEdits();if(in){in->stop();in->Destroy();}if(out)out->Destroy();if(log)std::fclose(log);}
  const char* GetTypeString()override{return "ROTOREAPER";}
- const char* GetDescString()override{return "Roto-Control REAPER (Bitwig protocol, experimental v0.2.7)";}
+ const char* GetDescString()override{return "Roto-Control REAPER (Bitwig protocol, experimental v0.3.0)";}
  // Keep a configuration token so REAPER can reload the saved surface entry.
  const char* GetConfigString()override{return "0";}
- bool GetTouchState(MediaTrack* t,int pan)override{if(plugin || (pan!=0 && pan!=1))return false;for(int i=0;i<8;++i)if(touch[i] && touched[i]==t && ((pan==1)==(knobMode==1)))return true;return false;}
+ bool GetTouchState(MediaTrack* t,int pan)override{if(plugin || knobMode==2 || (pan!=0 && pan!=1))return false;for(int i=0;i<8;++i)if(touch[i] && touched[i]==t && ((pan==1)==(knobMode==1)))return true;return false;}
  void SetSurfaceVolume(MediaTrack* t,double value)override{if(t)hostVolumes[t]=value;}
  void SetSurfacePan(MediaTrack* t,double value)override{if(t)hostPans[t]=value;}
- void SetTrackListChange()override{hostVolumes.clear();hostPans.clear();reset();}
- void SetTrackTitle(MediaTrack*,const char*)override{dirty=true;}
+ void SetTrackListChange()override{sendDirty=true;hostVolumes.clear();hostPans.clear();reset();}
+ void SetTrackTitle(MediaTrack*,const char*)override{dirty=true;sendDirty=true;}
  void Run()override{
    if(!in || !out)return;
    double now=time_precise();if(connected && plugin)syncPlugin();in->SwapBufsPrecise((unsigned int)(now*1000),now);int pos=0;auto* list=in->GetReadBuf();while(auto* e=list->EnumItems(&pos))event(e);
    if(!connected){if(now-retry>3){sx(10,1);retry=now;}return;}
    if(plugin){syncPlugin();if(pluginDirty)pluginDetails();pluginTrackDetails();pollLearn();}
-   else {if(!mix || !supported)return;if(dirty || now-refresh>2){details();refresh=now;}}
+   else {if(!mix || !supported)return;if(dirty || now-refresh>2){details();refresh=now;}syncSends(now);}
    meterFeedback(now);
    if(!metadata.empty()){
      if(now>=metadataNext){auto b=metadata.front();metadata.pop_front();send(b);metadataNext=now+0.03;
@@ -371,7 +436,12 @@ public:
    for(int i=0;i<8;++i){auto* t=track(i);if(!t)continue;
      auto& hostValues=knobMode==1?hostPans:hostVolumes;
      auto value=hostValues.find(t);
-     double val=value!=hostValues.end()?value->second:GetMediaTrackInfo_Value(t,knobMode==1?"D_PAN":"D_VOL");int v=(int)std::lround(16383*(knobMode==1?std::clamp((val+1)/2,0.0,1.0):roto::position(val)));
+     double val=value!=hostValues.end()?value->second:GetMediaTrackInfo_Value(t,knobMode==1?"D_PAN":"D_VOL");
+     if(knobMode==2){double sendPan=0;int index=route(t,sendDestination());val=0;
+       if(index>=0 && !GetTrackSendUIVolPan(t,GetTrackNumSends(t,1)+index,&val,&sendPan))val=0;
+     }
+     if(!std::isfinite(val))val=0;
+     int v=(int)std::lround(16383*(knobMode==1?std::clamp((val+1)/2,0.0,1.0):roto::position(val)));
      if(!touch[i] && last[i]!=v){send({191,(unsigned char)(12+i),(unsigned char)(v>>7)});send({191,(unsigned char)(44+i),(unsigned char)(v&127)});last[i]=v;char msg[120];std::snprintf(msg,sizeof(msg),"Motor TX: knob=%d value=%d touch=%d track=%d",i+1,v,touch[i],bank+i+1);note(msg);}
      const char* key=buttonMode==1?"I_SOLO":buttonMode==2?"I_RECARM":"B_MUTE";
      int state=GetMediaTrackInfo_Value(t,key)>0?127:0;
@@ -383,5 +453,5 @@ static IReaperControlSurface* create(const char*,const char*,int* err){return ne
 // REAPER calls this callback unconditionally when selecting the surface type.
 // This prototype has automatic port detection and no custom configuration panel.
 static HWND showConfig(const char*,HWND,const char*) { return nullptr; }
-static reaper_csurf_reg_t reg={"ROTOREAPER","Roto-Control REAPER (Bitwig protocol, experimental v0.2.7)",create,showConfig};
+static reaper_csurf_reg_t reg={"ROTOREAPER","Roto-Control REAPER (Bitwig protocol, experimental v0.3.0)",create,showConfig};
 extern "C" REAPER_PLUGIN_DLL_EXPORT int REAPER_PLUGIN_ENTRYPOINT(REAPER_PLUGIN_HINSTANCE,reaper_plugin_info_t* rec){if(!rec)return 0;if(rec->caller_version!=REAPER_PLUGIN_VERSION || REAPERAPI_LoadAPI(rec->GetFunc))return 0;return rec->Register("csurf",&reg);}

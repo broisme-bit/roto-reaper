@@ -22,10 +22,16 @@ static MediaTrack* selected=(MediaTrack*)&fakeTrack;
 static double fxValues[2][10]={{.2,.3,.4,.5,.6,.7,.8,.9,.1,.25},{.6}};
 static GUID fxGuids[2]={{1},{2}},secondFxGuids[2]={{11},{12}};
 static void pump(Surface& s){for(int i=0;i<20;++i){clockTime+=.034;s.Run();}}
+static int sendTracks[10];
+struct TestSend {MediaTrack* destination;double value;};
+static std::vector<TestSend> routes[10];
+static int sendWrites=0,sendEnds=0,sendInstants=0,lastSendIndex=-1;
+static MediaTrack* lastSendTrack=nullptr;
+static int sourceIndex(MediaTrack* t){for(int i=0;i<10;++i)if(t==(MediaTrack*)&sendTracks[i])return i;return -1;}
 int main(){
  assert(reg.ShowConfig != nullptr);
  assert(reg.ShowConfig(reg.type_string,nullptr,"") == nullptr);
- time_precise=+[](){return clockTime;};GetResourcePath=+[]()->const char*{return "/tmp";};
+ time_precise=+[](){return clockTime;};GetResourcePath=+[]()->const char*{return ".";};
  GetNumMIDIInputs=GetNumMIDIOutputs=+[](){return 1;};
  GetMIDIInputName=GetMIDIOutputName=+[](int,char* b,int){std::strcpy(b,"Roto-Control");return true;};
  CreateMIDIInput=+[](int)->midi_Input*{return &input;};CreateMIDIOutput=+[](int,bool,int*)->midi_Output*{return &output;};
@@ -54,6 +60,7 @@ int main(){
  TrackFX_Show=+[](MediaTrack*,int f,int){selectedFx=f;};
  SetOnlyTrackSelected=+[](MediaTrack* t){selected=t;};
  GetTouchedOrFocusedFX=+[](int mode,int* ti,int* item,int* take,int* f,int* p){*ti=mode?focusedTrack:0;*item=-1;*take=-1;*f=mode?focusedFx:lastFx;*p=mode?0:lastParam;return mode?focusActive:lastTouched;};
+ GetTrackNumSends=+[](MediaTrack*,int){return 0;};
  int err=0;Surface s(&err);assert(err==0);assert(std::string(s.GetConfigString())=="0");assert(output.sent.back()==roto::sysex(10,1));
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(changes==0);
  input.q.push(roto::sysex(10,2));pump(s);assert(output.sent.back()==roto::sysex(10,3,{2}));
@@ -259,5 +266,65 @@ int main(){
  input.q.push(roto::sysex(12,1,{0,1,0,0}));input.q.push({191,64,0});pump(s);assert(changes==beforeUnity+2);
  input.q.push(roto::sysex(12,1,{0,2,0,0}));input.q.push({191,64,0});pump(s);assert(changes==beforeUnity+2);
  input.q.push(roto::sysex(11,1));input.q.push({191,64,0});pump(s);assert(changes==beforeUnity+2);
- std::cout<<"Surface mock: unity indent and touch chatter, MIX unity event, stereo meters, mixer automation callbacks, mixer regressions, plugin learn/recall, page isolation, motor/touch, instance selection/lock, removal, buttons and mixer return passed\n";
+ // Shared send destinations must resolve by target, never by source-local slot.
+ trackCount=10;GetTrack=+[](ReaProject*,int i)->MediaTrack*{return i>=0 && i<trackCount?(MediaTrack*)&sendTracks[i]:nullptr;};
+ GetMasterTrack=+[](ReaProject*)->MediaTrack*{return (MediaTrack*)&sendTracks[9];};
+ ValidatePtr2=+[](ReaProject*,void* p,const char*){return sourceIndex((MediaTrack*)p)>=0 && sourceIndex((MediaTrack*)p)<trackCount;};
+ GetTrackName=+[](MediaTrack* t,char* b,int size){int i=sourceIndex(t);std::snprintf(b,size,"%s",i==2?"Reverb":i==3?"Delay":"Source");return true;};
+ auto* reverb=(MediaTrack*)&sendTracks[2];auto* delay=(MediaTrack*)&sendTracks[3];
+ routes[0]={{delay,.2},{reverb,.4}};routes[1]={{reverb,.6}};routes[8]={{reverb,.8}};
+ GetTrackNumSends=+[](MediaTrack* t,int category){int i=sourceIndex(t);return i<0?0:category==1?2:(int)routes[i].size();};
+ GetSetTrackSendInfo=+[](MediaTrack* t,int category,int index,const char* key,void*)->void*{
+   int i=sourceIndex(t);return category==0 && i>=0 && index>=0 && index<(int)routes[i].size() && std::strcmp(key,"P_DESTTRACK")==0?routes[i][index].destination:nullptr;
+ };
+ GetTrackSendUIVolPan=+[](MediaTrack* t,int index,double* value,double* pan){int i=sourceIndex(t);index-=2;
+   if(i<0 || index<0 || index>=(int)routes[i].size())return false;*value=routes[i][index].value;*pan=0;return true;
+ };
+ SetTrackSendUIVol=+[](MediaTrack* t,int index,double value,int end){int i=sourceIndex(t);lastSendIndex=index;index-=2;
+   if(i<0 || index<0 || index>=(int)routes[i].size())return false;
+   ++sendWrites;sendEnds+=end==1;sendInstants+=end==-1;lastSendTrack=t;routes[i][index].value=value;return true;
+ };
+ input.q.push(roto::sysex(10,6,{0,0}));input.q.push(roto::sysex(12,1,{0,2,0,0}));s.SetTrackListChange();output.sent.clear();pump(s);
+ assert(std::find(output.sent.begin(),output.sent.end(),roto::sysex(12,3,{2}))!=output.sent.end());
+ roto::Bytes sendLabels{0};roto::text(sendLabels,"Reverb");roto::text(sendLabels,"Delay");for(int i=2;i<8;++i)roto::text(sendLabels,"");
+ assert(std::find(output.sent.begin(),output.sent.end(),roto::sysex(12,8,sendLabels))!=output.sent.end());
+ assert(motorValue(roto::position(.4)));
+ input.q.push({191,12,127});input.q.push({191,44,127});pump(s);
+ assert(lastSendTrack==(MediaTrack*)&sendTracks[0] && lastSendIndex==3 && routes[0][1].value==roto::volume(1) && routes[0][0].value==.2);
+ input.q.push({191,13,0});input.q.push({191,45,0});pump(s);assert(routes[1][0].value==0 && lastSendIndex==2);
+ // No route: no send creation and no accidental track-volume edit.
+ int priorWrites=sendWrites,priorChanges=changes;
+ input.q.push({191,14,100});input.q.push({191,46,0});pump(s);assert(sendWrites==priorWrites && changes==priorChanges);
+ input.q.push({191,64,0});pump(s);assert(sendWrites==priorWrites);
+ input.q.push({191,12,101});input.q.push({191,44,76});pump(s);assert(routes[0][1].value==1 && sendInstants>0);
+ // REAPER changes feed back; held knobs receive no motor target. Release ends edit.
+ routes[0][1].value=.1;output.sent.clear();pump(s);assert(motorValue(roto::position(.1)));
+ input.q.push({191,52,127});pump(s);assert(!s.GetTouchState((MediaTrack*)&sendTracks[0],0));
+ input.q.push({191,12,64});input.q.push({191,44,0});pump(s);int ends=sendEnds;
+ routes[0][1].value=.7;output.sent.clear();pump(s);for(auto b:output.sent)assert(b.size()!=3 || (b[1]!=12 && b[1]!=44));
+ input.q.push({191,52,0});pump(s);assert(sendEnds==ends+1);
+ // Hardware outputs are skipped and local send reordering preserves destination.
+ std::swap(routes[0][0],routes[0][1]);input.q.push({191,12,101});input.q.push({191,44,76});pump(s);assert(routes[0][0].destination==reverb && routes[0][0].value==1 && lastSendIndex==2);
+ // Changing send choice addresses Delay, while buttons remain track controls.
+ input.q.push(roto::sysex(12,1,{0,2,0,1}));pump(s);input.q.push({191,12,101});input.q.push({191,44,76});pump(s);assert(routes[0][1].destination==delay && routes[0][1].value==1);
+ CSurf_OnMuteChange=+[](MediaTrack* t,int){lastSendTrack=t;return true;};CSurf_SetSurfaceMute=+[](MediaTrack*,bool,IReaperControlSurface*){};
+ input.q.push({191,20,127});pump(s);assert(lastSendTrack==(MediaTrack*)&sendTracks[0]);
+ // Request names beyond the end: eight zero-padded strings, correct block start.
+ input.q.push(roto::sysex(12,7,{9}));output.sent.clear();pump(s);roto::Bytes blankNames{8};for(int i=0;i<8;++i)roto::text(blankNames,"");
+ assert(std::find(output.sent.begin(),output.sent.end(),roto::sysex(12,8,blankNames))!=output.sent.end());
+ // Bank 9-16 resolves track 9's send independently.
+ input.q.push(roto::sysex(12,1,{0,2,0,0}));input.q.push(roto::sysex(10,6,{0,8}));pump(s);input.q.push({191,12,101});input.q.push({191,44,76});pump(s);
+ assert(lastSendTrack==(MediaTrack*)&sendTracks[8] && routes[8][0].value==1);
+ // A second names page includes destinations 9/10, then six empty names.
+ routes[0].clear();for(int i=1;i<10;++i)routes[0].push_back({(MediaTrack*)&sendTracks[i],.2});routes[1]={{(MediaTrack*)&sendTracks[0],.3}};
+ s.SetTrackListChange();pump(s);input.q.push(roto::sysex(12,7,{9}));output.sent.clear();pump(s);
+ roto::Bytes pageNames{8};roto::text(pageNames,"Source");roto::text(pageNames,"Source");for(int i=2;i<8;++i)roto::text(pageNames,"");
+ assert(std::find(output.sent.begin(),output.sent.end(),roto::sysex(12,8,pageNames))!=output.sent.end());
+ // Removal clears send choices and does not create or write another route.
+ for(auto& list:routes)list.clear();s.SetTrackListChange();output.sent.clear();pump(s);priorWrites=sendWrites;
+ assert(std::find(output.sent.begin(),output.sent.end(),roto::sysex(12,3,{0}))!=output.sent.end());
+ input.q.push({191,64,0});input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(sendWrites==priorWrites);
+ // Returning to Level restores volume controls after the Send mode.
+ input.q.push(roto::sysex(12,1,{0,0,0,0}));pump(s);input.q.push({191,12,100});input.q.push({191,44,0});pump(s);assert(changes==priorChanges+1);
+ std::cout<<"Surface mock: send destination names, routing, hardware offsets, banking, motor/touch, removal and mixer return; unity indent and touch chatter, MIX unity event, stereo meters, mixer automation callbacks, mixer regressions, plugin learn/recall, page isolation, motor/touch, instance selection/lock, removal, buttons and mixer return passed\n";
 }

@@ -1,11 +1,7 @@
-# v0.2.6 — experimental macOS beta
+# v0.3.0 — experimental multi-platform beta
 
-Independent native Roto-Control integration for REAPER using the published Bitwig protocol. Tested on Apple Silicon macOS with REAPER 7.82 and controller firmware 3.2.1 / 3.3.0 (API 1.6).
+Adds MIX all-tracks send levels using the published Bitwig protocol. Select an existing destination bus; each knob controls its visible track's existing send to that bus. Includes destination names, 14-bit motor feedback and banking. Missing routes stay inactive and no sends are created. Hardware outputs are excluded; duplicate routes to one destination use the first send.
 
-Includes mixer banking, volume/pan, mute/solo/arm, names/colors, motor feedback, stereo meters, transport and plugin learn/recall with pages and lock. Unity alignment now uses the measured indent position; redundant unchanged motor resends after touch events are removed.
+Retains the v0.2.7 fix that saves the control-surface entry across REAPER restarts. Existing learned plugin mappings are unaffected.
 
-**Known issue:** touch OFF can arrive during a continuous hold. Reproduced with REAPER closed in raw MIDI capture; reported to Melbourne Instruments, cause unresolved. Touch automation holds remain unreliable. Explicit plugin automation touch reporting is not implemented.
-
-Windows and Intel macOS are not validated. Sends, MIX single-track view and serial/haptics editing are not implemented. See README.md for installation, removal and beta checks.
-
-If a macOS ARM64 binary is attached, use it with native Apple Silicon REAPER. GitHub's Source code downloads require building with `bash build-mac.sh` on a Mac. No firmware modification or Bitwig installation is required.
+Mock tests and Apple Silicon basic send-mode checks pass, including banking, route removal and mixer/plugin/restart regressions. Windows x64 and Intel Mac builds are experimental and require volunteer hardware testing after successful CI builds. Existing touch dropouts remain unresolved; send automation Touch holds are not validated. Windows/Intel Mac and single-track MIX remain unvalidated/unsupported respectively. See README.md and SEND-TEST.md.

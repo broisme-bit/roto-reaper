@@ -1,4 +1,4 @@
-# Roto-Control for REAPER — v0.2.6 experimental beta
+# Roto-Control for REAPER — v0.3.0 experimental beta
 
 An independent native REAPER control-surface extension for Melbourne Instruments Roto-Control. Uses the published Bitwig protocol personality (DAW ID 02); no Bitwig installation, bridge app or firmware modification is required. Not an official Melbourne Instruments or Cockos integration.
 
@@ -13,6 +13,7 @@ The extension suppresses motor feedback while its received touch state is ON. An
 ## Features
 
 - MIX all-tracks: volume, pan, mute, solo and record arm; banks of eight.
+- MIX all-tracks Send levels: select an existing destination bus and control each visible track's send to it, with names and motor feedback. Basic Apple Silicon hardware checks passed for v0.3.0; send automation remains unvalidated.
 - Track names and approximate custom colors using the controller's fixed palette.
 - 14-bit motor feedback, including volume/pan envelope playback through REAPER surface callbacks.
 - Stereo MIX peak meters, up to 20 Hz, with yellow at -12 dBFS and red at 0 dBFS.
@@ -30,7 +31,7 @@ If the release has a macOS ARM64 binary asset, unzip it and use the included `re
 2. Quit REAPER. Copy `reaper_roto.dylib` into that resource folder's **UserPlugins** directory. Create the directory if needed. Keep only one copy of this extension there.
 3. Close other applications controlling Roto-Control. Connect the controller before starting REAPER.
 4. In REAPER's MIDI device preferences, disable normal input, control-input and output use of Roto-Control so the control surface owns the ports. Disable other surfaces using the same device.
-5. In **Preferences > Control/OSC/web**, add **Roto-Control REAPER (Bitwig protocol, experimental v0.2.6)**. Add it only once.
+5. In **Preferences > Control/OSC/web**, add **Roto-Control REAPER (Bitwig protocol, experimental v0.3.0)**. Add it only once.
 6. On the controller select **MIX > all tracks**, **Level** and **Mute**. A Bitwig identity is expected: it is the protocol personality.
 
 There is no MIDI port selector. The extension requires exactly one input and output containing `Roto-Control`; restore original names if you have aliased them. Multiple matching devices are rejected. If absent from the surface list, check architecture, build output and installation location. Reconnection is not guaranteed: restart REAPER or remove/re-add the surface after reconnecting.
@@ -70,17 +71,25 @@ The log is `roto-reaper.log` in the REAPER resource folder. It should show `Port
 
 For a report, provide macOS and REAPER versions, Mac architecture, firmware/API versions, extension version, connection/power arrangement, reproduction steps and the saved log. Review the log for track/plugin names before posting publicly. For touch reports, say whether your hand stayed on the knob and how long the hold lasted.
 
+## Send levels
+
+In MIX all-tracks, select Send as the knob mode and choose a destination. Destinations are ordinary REAPER tracks receiving at least one existing track send, listed in project track order (up to 127). Each knob adjusts its visible source track's send to that destination. Source tracks retain their screen names and meters; the send selector shows destination names.
+
+Routes are resolved by destination, so different local send orders on different tracks do not change the target. If a source has no matching send, its knob feedback is zero and turning it does nothing; the extension does not create sends. If a source has several sends to the same destination, the first is controlled. Hardware outputs and receives are excluded. Volume scaling uses the existing silence/-60 to +12 dB curve. Buttons continue controlling track mute, solo or record arm.
+
+Send feedback reads REAPER's UI value and is suppressed while touch is ON. Edits use REAPER's send UI API and end on release. Send automation Touch holds are not validated; start in Trim/Read with playback stopped. The existing touch-dropout limitation still applies. Single-track MIX remains unsupported.
+
 ## Limitations and future work
 
-Sends, MIX single-track view, serial setup/custom haptics editing, automatic parameter assignment, input/take/container FX, user-selectable MIDI ports and comprehensive reconnect recovery are not implemented. Only the first 127 insert FX are listed. Unsupported Send/single-track modes ignore knob input; return to all-tracks to resume control.
+MIX single-track view, serial setup/custom haptics editing, automatic parameter assignment, input/take/container FX, user-selectable MIDI ports and comprehensive reconnect recovery are not implemented. Only the first 127 insert FX are listed. Unsupported single-track modes ignore knob input; return to all-tracks to resume control.
 
 Plugin automation has received limited user testing; explicit plugin automation touch reporting is not implemented. Name/color refresh is polled and the complete REAPER track list is used, rather than mixer visibility. Track volume uses silence at minimum, -60 to 0 dB below unity and 0 to +12 dB above unity. The physical unity indent was aligned to measured raw position 13004; this does not follow REAPER's configurable visual fader taper. Pan is linear.
 
 ## Contributing and Windows
 
-Original extension code is C++17 under MIT. Contributions, especially a Windows port and additional hardware testing, are welcome. Protocol and mapping logic should be reusable, but a Windows DLL build and host/MIDI validation are still required. The current CMake file uses GCC/Clang compiler flags; it is not a validated MSVC build recipe. Do not describe a Windows build as supported until it is tested.
+Original extension code is C++17 under MIT. Contributions, especially a Windows port and additional hardware testing, are welcome. Protocol and mapping logic should be reusable, but a Windows DLL build and host/MIDI validation are still required. CMake includes MSVC compiler settings and a static C++ runtime for Windows. GitHub Actions builds and tests Windows x64, Intel Mac and Apple Silicon Mac; successful compilation alone does not establish hardware support. Do not describe a Windows build as supported until it is tested.
 
-Optional CMake workflow for supported compilers:
+Optional CMake workflow (Windows: use a Visual Studio developer shell and add `-A x64` to the configure command):
 
 ```sh
 cmake -S . -B build
@@ -98,3 +107,7 @@ Linux builds and mock tests check protocol and integration behavior; they do not
 - WDL: https://github.com/justinfrankel/WDL
 
 Melbourne Instruments source was consulted, not copied into the extension. Original extension source is MIT licensed. Bundled SDK/WDL files retain their upstream notices and licenses.
+
+## Experimental platform packages
+
+The Build beta packages workflow produces separate Windows x64, Intel Mac x86_64 and Apple Silicon ARM64 ZIPs after automated tests pass. Download them from the completed workflow run's Artifacts section; the downloaded artifact may wrap the release ZIP in another ZIP. These artifacts do not automatically publish a release. Intel Mac and Windows need volunteer REAPER/controller validation. Use the matching native REAPER architecture. Installation uses UserPlugins on every platform; Windows loads reaper_roto.dll and macOS loads reaper_roto.dylib.
