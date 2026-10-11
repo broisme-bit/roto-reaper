@@ -20,7 +20,7 @@ def main():
     p.add_argument("--binary", type=pathlib.Path, required=True)
     a=p.parse_args()
     root=pathlib.Path(__file__).resolve().parents[1]
-    version="0.3.1"
+    version="0.3.2"
     validate_binary(a.binary.read_bytes(), a.platform)
     if a.platform.startswith("macos"):
         subprocess.run(["codesign", "--force", "--sign", "-", str(a.binary)], check=True)
@@ -62,7 +62,7 @@ def main():
         z.writestr(folder+"/INSTALL.txt",install)
         z.writestr(folder+"/SHA256SUMS.txt",hashlib.sha256(binary).hexdigest()+"  "+filename+"\n")
         z.writestr(folder+"/BUILD-INFO.txt",f"Platform: {a.platform}\nVersion: {version}\nCommit: {os.environ.get('GITHUB_SHA','local build')}\nStatus: {status}\n")
-        for name in ["LICENSE","THIRD-PARTY-NOTICES.txt","README.md","SEND-TEST.md","RECONNECT-TEST.md"]:
+        for name in ["LICENSE","THIRD-PARTY-NOTICES.txt","README.md","SEND-TEST.md","RECONNECT-TEST.md","SINGLE-TRACK-TEST.md"]:
             z.write(root/name,folder+"/"+name)
     with zipfile.ZipFile(output) as z:
         assert z.testzip() is None

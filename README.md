@@ -1,4 +1,4 @@
-# Roto-Control for REAPER — v0.3.1 reconnect preview
+# Roto-Control for REAPER — v0.3.2 single-track MIX preview
 
 An independent native REAPER control-surface extension for Melbourne Instruments Roto-Control. Uses the published Bitwig protocol personality (DAW ID 02); no Bitwig installation, bridge app or firmware modification is required. Not an official Melbourne Instruments or Cockos integration.
 
@@ -13,6 +13,8 @@ The extension suppresses motor feedback while its received touch state is ON. An
 ## Features
 
 - MIX all-tracks: volume, pan, mute, solo and record arm; banks of eight.
+- MIX single-track preview: selected-track Level/Pan and send levels, with additional send pages. Ordinary mixer buttons are inactive in this view. See SINGLE-TRACK-TEST.md; hardware validation pending.
+- Automatic MIDI reconnect; Apple Silicon hardware checks passed for v0.3.1.
 - MIX all-tracks Send levels: select an existing destination bus and control each visible track's send to it, with names and motor feedback. Basic Apple Silicon hardware checks passed for v0.3.0; send automation remains unvalidated.
 - Track names and approximate custom colors using the controller's fixed palette.
 - 14-bit motor feedback, including volume/pan envelope playback through REAPER surface callbacks.
@@ -31,7 +33,7 @@ If the release has a macOS ARM64 binary asset, unzip it and use the included `re
 2. Quit REAPER. Copy `reaper_roto.dylib` into that resource folder's **UserPlugins** directory. Create the directory if needed. Keep only one copy of this extension there.
 3. Close other applications controlling Roto-Control. Connect the controller before starting REAPER.
 4. In REAPER's MIDI device preferences, disable normal input, control-input and output use of Roto-Control so the control surface owns the ports. Disable other surfaces using the same device.
-5. In **Preferences > Control/OSC/web**, add **Roto-Control REAPER (Bitwig protocol, experimental v0.3.1 preview)**. Add it only once.
+5. In **Preferences > Control/OSC/web**, add **Roto-Control REAPER (Bitwig protocol, experimental v0.3.2 preview)**. Add it only once.
 6. On the controller select **MIX > all tracks**, **Level** and **Mute**. A Bitwig identity is expected: it is the protocol personality.
 
 There is no MIDI port selector. The extension requires exactly one input and output containing `Roto-Control`; restore original names if you have aliased them. Multiple matching devices are rejected. If absent from the surface list, check architecture, build output and installation location. The surface can remain installed while the controller is absent. It checks ports every 0.5 seconds and repeats the handshake after reconnecting. An idle API-version query checks the connection every 2 seconds; an unanswered query triggers reopening after 5 seconds. If REAPER itself does not rediscover the MIDI device, use its MIDI-device reset or restart REAPER. See RECONNECT-TEST.md for the hardware test checklist.
@@ -77,11 +79,11 @@ In MIX all-tracks, select Send as the knob mode and choose a destination. Destin
 
 Routes are resolved by destination, so different local send orders on different tracks do not change the target. If a source has no matching send, its knob feedback is zero and turning it does nothing; the extension does not create sends. If a source has several sends to the same destination, the first is controlled. Hardware outputs and receives are excluded. Volume scaling uses the existing silence/-60 to +12 dB curve. Buttons continue controlling track mute, solo or record arm.
 
-Send feedback reads REAPER's UI value and is suppressed while touch is ON. Edits use REAPER's send UI API and end on release. Send automation Touch holds are not validated; start in Trim/Read with playback stopped. The existing touch-dropout limitation still applies. Single-track MIX remains unsupported.
+Send feedback reads REAPER's UI value and is suppressed while touch is ON. Edits use REAPER's send UI API and end on release. Send automation Touch holds are not validated; start in Trim/Read with playback stopped. The existing touch-dropout limitation still applies. Single-track MIX uses the same destination list, with Level/Pan followed by send levels.
 
 ## Limitations and future work
 
-MIX single-track view, serial setup/custom haptics editing, automatic parameter assignment, input/take/container FX, user-selectable MIDI ports and comprehensive reconnect recovery are not implemented. Only the first 127 insert FX are listed. Unsupported single-track modes ignore knob input; return to all-tracks to resume control.
+Serial setup/custom haptics editing, automatic parameter assignment, input/take/container FX and user-selectable MIDI ports are not implemented. Only the first 127 insert FX are listed. Reconnect depends on REAPER/OS MIDI device availability.
 
 Plugin automation has received limited user testing; explicit plugin automation touch reporting is not implemented. Name/color refresh is polled and the complete REAPER track list is used, rather than mixer visibility. Track volume uses silence at minimum, -60 to 0 dB below unity and 0 to +12 dB above unity. The physical unity indent was aligned to measured raw position 13004; this does not follow REAPER's configurable visual fader taper. Pan is linear.
 

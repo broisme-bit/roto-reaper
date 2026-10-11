@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(roto_reaper VERSION 0.3.1 LANGUAGES CXX)
+project(roto_reaper VERSION 0.3.2 LANGUAGES CXX)
 if(MSVC)
  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()

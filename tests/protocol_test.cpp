@@ -30,5 +30,6 @@ int main(){
  assert(roto::volume(13003.0/16383)<1 && roto::volume(13005.0/16383)>1);
  assert(std::abs(20*std::log10(roto::volume(1))-12)<1e-10);
  assert(roto::volume(0)==0 && roto::position(0)==0);
+ // API section 4.10: track index and each RGB component are two 7-bit bytes.
  std::cout<<"Handshake bytes, full 14-bit range, text limits, and volume feedback round-trip passed\n";
 }

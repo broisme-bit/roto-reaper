@@ -28,6 +28,7 @@ static double fxValues[2][10]={{.2,.3,.4,.5,.6,.7,.8,.9,.1,.25},{.6}};
 static GUID fxGuids[2]={{1},{2}},secondFxGuids[2]={{11},{12}};
 static void pump(Surface& s){for(int i=0;i<20;++i){clockTime+=.034;s.Run();}}
 static int sendTracks[10];
+static double trackVolumes[10]={1,.3},trackPans[10]={0,-.4};
 struct TestSend {MediaTrack* destination;double value;};
 static std::vector<TestSend> routes[10];
 static int sendWrites=0,sendEnds=0,sendInstants=0,lastSendIndex=-1;
@@ -364,7 +365,81 @@ int main(){
  input.q.push({191,64,0});input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(sendWrites==priorWrites);
  // Returning to Level restores volume controls after the Send mode.
  input.q.push(roto::sysex(12,1,{0,0,0,0}));pump(s);input.q.push({191,12,100});input.q.push({191,44,0});pump(s);assert(changes==priorChanges+1);
+ // Single-track MIX uses Level/Pan then sends, never adjacent track controls.
+ GetMediaTrackInfo_Value=+[](MediaTrack* t,const char* key){int i=sourceIndex(t);if(i<0)return 0.0;
+   if(std::strcmp(key,"IP_TRACKNUMBER")==0)return double(i+1);
+   if(std::strcmp(key,"D_VOL")==0)return trackVolumes[i];if(std::strcmp(key,"D_PAN")==0)return trackPans[i];return 0.0;
+ };
+ CSurf_OnVolumeChange=+[](MediaTrack* t,double v,bool){lastFxWrite=t;++changes;return trackVolumes[sourceIndex(t)]=v;};
+ CSurf_OnPanChange=+[](MediaTrack* t,double v,bool){lastFxWrite=t;++changes;return trackPans[sourceIndex(t)]=v;};
+ selected=(MediaTrack*)&sendTracks[0];routes[0]={{delay,.2},{reverb,.4}};routes[1]={{reverb,.6}};
+ input.q.push(roto::sysex(12,2,{0}));s.SetTrackListChange();output.sent.clear();pump(s);
+ for(const auto& b:output.sent)assert(b.size()<8 || b[0]!=240 || !((b[5]==10 && b[6]==7) || (b[5]==10 && b[6]==0x16)));
+ auto slotValue=[&](int slot,double position){int v=(int)std::lround(16383*position);
+   return has({191,(unsigned char)(12+slot),(unsigned char)(v>>7)}) && has({191,(unsigned char)(44+slot),(unsigned char)(v&127)});
+ };
+ assert(has(roto::selectedTrack(0,"Source",70)) && slotValue(0,roto::position(1)) && slotValue(1,.5));
+ // Bitwig publishes send metadata before selected-track metadata.
+ auto selectPacket=std::find(output.sent.begin(),output.sent.end(),roto::selectedTrack(0,"Source",70));
+ auto singleSendLabels=std::find_if(output.sent.begin(),output.sent.end(),[](const roto::Bytes& b){return b.size()>8 && b[0]==240 && b[5]==12 && b[6]==8;});
+ assert(singleSendLabels!=output.sent.end() && singleSendLabels<selectPacket);
+ assert(slotValue(2,roto::position(.4)) && slotValue(3,roto::position(.2)) && slotValue(7,0));
+ assert(hasMeter(65,115) && hasMeter(67,0));
+ oldChanges=changes;priorWrites=sendWrites;
+ input.q.push({191,12,64});input.q.push({191,44,0});pump(s);assert(changes==oldChanges+1 && lastFxWrite==selected && trackVolumes[1]==.3);
+ input.q.push({191,13,127});input.q.push({191,45,127});pump(s);assert(changes==oldChanges+2 && trackPans[0]==1 && trackPans[1]==-.4);
+ input.q.push({191,14,101});input.q.push({191,46,76});pump(s);assert(sendWrites==priorWrites+1 && lastSendTrack==selected && routes[0][1].value==1);
+ priorWrites=sendWrites;input.q.push({191,19,127});input.q.push({191,51,127});pump(s);assert(sendWrites==priorWrites);
+ // Unity applies only to the Level control, not Pan or a Send.
+ input.q.push({191,64,0});pump(s);assert(trackVolumes[0]==1 && changes==oldChanges+3);
+ input.q.push({191,64,1});input.q.push({191,64,2});pump(s);assert(changes==oldChanges+3 && sendWrites==priorWrites);
+ // Ordinary buttons are inactive in the official single-track layout.
+ lastSendTrack=nullptr;input.q.push({191,20,127});pump(s);assert(lastSendTrack==nullptr);
+ // Separate Level/Pan touch states and host automation feedback.
+ input.q.push({191,52,127});input.q.push({191,53,127});pump(s);
+ assert(s.GetTouchState(selected,0) && s.GetTouchState(selected,1));
+ s.SetSurfaceVolume(selected,.1);s.SetSurfacePan(selected,-.6);output.sent.clear();pump(s);
+ for(auto b:output.sent)assert(b.size()!=3 || (b[1]!=12 && b[1]!=44 && b[1]!=13 && b[1]!=45));
+ // Selection during a hold defers retargeting until release.
+ selected=(MediaTrack*)&sendTracks[1];input.q.push({191,12,64});input.q.push({191,44,0});pump(s);assert(lastFxWrite==(MediaTrack*)&sendTracks[0]);
+ input.q.push({191,52,0});input.q.push({191,53,0});output.sent.clear();pump(s);
+ assert(has(roto::selectedTrack(1,"Source",70)) && slotValue(0,roto::position(.3)) && slotValue(1,.3));
+ assert(!s.GetTouchState((MediaTrack*)&sendTracks[0],0));
+ // All-tracks name packets must never overwrite single-track control labels,
+ // including periodic refreshes, selection changes and host title/list callbacks.
+ auto noTrackNames=[&](){for(const auto& b:output.sent)assert(b.size()<8 || b[0]!=240 || !((b[5]==10 && b[6]==7) || (b[5]==10 && b[6]==0x16)));};
+ noTrackNames();
+ output.sent.clear();s.SetTrackTitle(selected,"Source renamed");s.SetTrackListChange();clockTime+=2.1;pump(s);noTrackNames();
+ selected=(MediaTrack*)&sendTracks[3];output.sent.clear();pump(s);noTrackNames();assert(has(roto::selectedTrack(3,"Delay",70)));
+ selected=(MediaTrack*)&sendTracks[1];output.sent.clear();pump(s);noTrackNames();
+ // No route on selected track: do not write/create one or edit its volume.
+ priorWrites=sendWrites;oldChanges=changes;input.q.push({191,15,127});input.q.push({191,47,127});pump(s);assert(sendWrites==priorWrites && changes==oldChanges);
+ input.q.push({191,14,101});input.q.push({191,46,76});pump(s);assert(lastSendTrack==selected && routes[1][0].value==1);
+ s.SetSurfaceVolume(selected,.2);s.SetSurfacePan(selected,.4);output.sent.clear();pump(s);assert(slotValue(0,roto::position(.2)) && slotValue(1,.7));
+ // Page 2 begins at send index 6; page 3 begins at index 14 (API v1.6).
+ selected=(MediaTrack*)&sendTracks[0];routes[0].clear();for(int i=1;i<10;++i)routes[0].push_back({(MediaTrack*)&sendTracks[i],.2});routes[1]={{(MediaTrack*)&sendTracks[0],.3}};
+ s.SetTrackListChange();input.q.push(roto::sysex(12,2,{8}));output.sent.clear();pump(s);
+ roto::Bytes singleNames{6};for(int i=0;i<4;++i)roto::text(singleNames,"Source");for(int i=4;i<8;++i)roto::text(singleNames,"");
+ assert(has(roto::sysex(12,8,singleNames)) && slotValue(0,roto::position(.2)) && slotValue(7,0));
+ oldChanges=changes;input.q.push({191,12,101});input.q.push({191,44,76});pump(s);
+ assert(lastSendTrack==selected && lastSendIndex==7 && routes[0][5].destination==(MediaTrack*)&sendTracks[6] && routes[0][5].value==1 && changes==oldChanges);
+ input.q.push({191,64,0});pump(s);assert(changes==oldChanges);
+ input.q.push(roto::sysex(12,2,{16}));output.sent.clear();pump(s);
+ roto::Bytes emptySingleNames{14};for(int i=0;i<8;++i)roto::text(emptySingleNames,"");assert(has(roto::sysex(12,8,emptySingleNames)) && slotValue(0,0));
+ priorWrites=sendWrites;input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(sendWrites==priorWrites && changes==oldChanges);
+ // Page payload must be a multiple of eight; malformed/short packets do nothing.
+ input.q.push(roto::sysex(12,2,{1}));input.q.push(roto::sysex(12,2,{128}));input.q.push(roto::sysex(12,2));pump(s);
+ input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(sendWrites==priorWrites && changes==oldChanges);
+ // Deleted selected tracks clear the label/controls without stale pointer writes.
+ trackCount=0;output.sent.clear();s.SetTrackListChange();pump(s);assert(has(roto::selectedTrack(0,"",70)) && slotValue(0,0));
+ input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(sendWrites==priorWrites && changes==oldChanges);
+ trackCount=10;selected=(MediaTrack*)&sendTracks[0];input.q.push(roto::sysex(12,2,{0}));pump(s);
+ // Return to all-tracks restores its knob assignment and requested bank.
+ input.q.push(roto::sysex(10,6,{0,8}));
+ input.q.push(roto::sysex(12,1,{0,0,0,0}));pump(s);input.q.push({191,12,64});input.q.push({191,44,0});pump(s);
+ assert(lastFxWrite==(MediaTrack*)&sendTracks[8] && changes==oldChanges+1);
  // Disconnect while editing a send ends its gesture exactly once.
+ for(auto& list:routes)list.clear();
  routes[8]={{reverb,.5}};s.SetTrackListChange();
  input.q.push(roto::sysex(12,1,{0,2,0,0}));pump(s);
  input.q.push({191,52,127});input.q.push({191,12,64});input.q.push({191,44,0});pump(s);
@@ -377,6 +452,10 @@ int main(){
    clockTime+=8.1;waiting.Run();clockTime+=1.1;waiting.Run();assert(inputCreates==created+2);
    input.q.push(roto::sysex(10,2));input.q.push(roto::sysex(10,12));input.q.push(roto::sysex(12,1,{0,0,0,0}));
    output.sent.clear();pump(waiting);assert(has(roto::sysex(10,8)));
+   input.q.push(roto::sysex(12,2,{0}));output.sent.clear();pump(waiting);assert(has(roto::selectedTrack(0,"Source",70)));
+   portCount=0;pump(waiting);portCount=1;pump(waiting);
+   input.q.push(roto::sysex(10,2));input.q.push(roto::sysex(10,12));input.q.push(roto::sysex(12,2,{0}));
+   output.sent.clear();pump(waiting);assert(has(roto::selectedTrack(0,"Source",70)));
  }
- std::cout<<"Surface mock: reconnect, idle health, stale handles, ambiguous ports, partial failures, mapping recall; send destination names, routing, hardware offsets, banking, motor/touch, removal and mixer return; unity indent and touch chatter, MIX unity event, stereo meters, mixer automation callbacks, mixer regressions, plugin learn/recall, page isolation, motor/touch, instance selection/lock, removal, buttons and mixer return passed\n";
+ std::cout<<"Surface mock: single-track Level/Pan/sends, pages, selection/hold, missing routes, deletion and return; reconnect, idle health, stale handles, ambiguous ports, partial failures, mapping recall; send destination names, routing, hardware offsets, banking, motor/touch, removal and mixer return; unity indent and touch chatter, MIX unity event, stereo meters, mixer automation callbacks, mixer regressions, plugin learn/recall, page isolation, motor/touch, instance selection/lock, removal, buttons and mixer return passed\n";
 }
