@@ -9,8 +9,13 @@ struct Events: MIDI_eventlist {
  MIDI_event_t* EnumItems(int* p)override {if(*p>=(int)items.size()){items.clear();return nullptr;}return (MIDI_event_t*)items[(*p)++].data();}
  void DeleteItem(int)override{} int GetSize()override{return items.size();}void Empty()override{items.clear();}
 };
-struct In:midi_Input {Events q;void start()override{}void stop()override{}void SwapBufs(unsigned int)override{}MIDI_eventlist* GetReadBuf()override{return &q;}void Destroy()override{}} input;
-struct Out:midi_Output {std::vector<roto::Bytes> sent;void SendMsg(MIDI_event_t* e,int)override{sent.emplace_back(e->midi_message,e->midi_message+e->size);}void Send(unsigned char,unsigned char,unsigned char,int)override{}void Destroy()override{}} output;
+static bool autoReply=true,openInput=true,openOutput=true;
+static int portCount=1,portIndex=0,inputCreates=0,outputCreates=0,inputDestroys=0,outputDestroys=0;
+struct In:midi_Input {Events q;void start()override{}void stop()override{q.Empty();}void SwapBufs(unsigned int)override{}MIDI_eventlist* GetReadBuf()override{return &q;}void Destroy()override{++inputDestroys;}} input;
+struct Out:midi_Output {std::vector<roto::Bytes> sent;void SendMsg(MIDI_event_t* e,int)override{
+ sent.emplace_back(e->midi_message,e->midi_message+e->size);
+ if(autoReply && sent.back()==roto::sysex(10,15))input.q.push(roto::sysex(10,16,{1,6}));
+ }void Send(unsigned char,unsigned char,unsigned char,int)override{}void Destroy()override{++outputDestroys;}} output;
 static double peakLeft=0,peakRight=0;static int peakReads=0;
 static double clockTime=0,vol=1,pan=0;static int changes=0;static int fakeTrack=0;static int trackCount=1;static int trackColor=0;
 static std::string firstName="Drums",secondName="Bass";
@@ -32,9 +37,9 @@ int main(){
  assert(reg.ShowConfig != nullptr);
  assert(reg.ShowConfig(reg.type_string,nullptr,"") == nullptr);
  time_precise=+[](){return clockTime;};GetResourcePath=+[]()->const char*{return ".";};
- GetNumMIDIInputs=GetNumMIDIOutputs=+[](){return 1;};
- GetMIDIInputName=GetMIDIOutputName=+[](int,char* b,int){std::strcpy(b,"Roto-Control");return true;};
- CreateMIDIInput=+[](int)->midi_Input*{return &input;};CreateMIDIOutput=+[](int,bool,int*)->midi_Output*{return &output;};
+ GetNumMIDIInputs=GetNumMIDIOutputs=+[](){return portCount;};
+ GetMIDIInputName=GetMIDIOutputName=+[](int i,char* b,int){std::strcpy(b,i==portIndex || (portCount==2 && portIndex==0)?"Roto-Control":"Other MIDI");return true;};
+ CreateMIDIInput=+[](int)->midi_Input*{++inputCreates;return openInput?&input:nullptr;};CreateMIDIOutput=+[](int,bool,int*)->midi_Output*{++outputCreates;return openOutput?&output:nullptr;};
  CountTracks=+[](ReaProject*){return trackCount;};GetTrack=+[](ReaProject*,int n)->MediaTrack*{return n>=0 && n<trackCount?(MediaTrack*)&fakeTrack:nullptr;};GetMasterTrack=+[](ReaProject*)->MediaTrack*{return (MediaTrack*)&fakeTrack;};
  GetTrackName=+[](MediaTrack* t,char* b,int size){std::snprintf(b,size,"%s",(t==(MediaTrack*)&secondTrack?secondName:firstName).c_str());return true;};GetTrackColor=+[](MediaTrack*){return trackColor;};
  ColorFromNative=+[](int c,int* r,int* g,int* b){*r=(c>>16)&255;*g=(c>>8)&255;*b=c&255;};
@@ -111,7 +116,7 @@ int main(){
  bool bankEight=false;for(auto b:output.sent)if(b==roto::sysex(10,5,{0,8}))bankEight=true;
  assert(bankEight);
  std::vector<roto::Bytes> batch;
- for(auto b:output.sent)if(b.size()>=8 && b[0]==240 && b[5]==10)batch.push_back(b);
+ for(auto b:output.sent)if(b.size()>=8 && b[0]==240 && b[5]==10 && b[6]!=15)batch.push_back(b);
  roto::Bytes ninth;roto::word(ninth,8);roto::text(ninth,"Drums");ninth.push_back(70);ninth.push_back(0);
  roto::Bytes tenth=ninth;tenth[1]=9;
  const std::vector<roto::Bytes> expected={roto::sysex(10,4,{0,10}),roto::sysex(10,5,{0,8}),roto::sysex(10,7,ninth),roto::sysex(10,7,tenth),roto::sysex(10,8)};
@@ -120,10 +125,10 @@ int main(){
  for(auto b:output.sent)assert(b.size()<7 || b[0]!=240 || b[5]!=10 || b[6]!=5);
  // Color-only refresh must preserve the exact partial-bank sequence.
  trackColor=0x1000000|0xFF0000;output.sent.clear();clockTime+=3;pump(s);
- batch.clear();for(auto b:output.sent)if(b.size()>=8 && b[0]==240 && b[5]==10)batch.push_back(b);
+ batch.clear();for(auto b:output.sent)if(b.size()>=8 && b[0]==240 && b[5]==10 && b[6]!=15)batch.push_back(b);
  auto colored=expected;colored[2][22]=71;colored[3][22]=71;assert(batch==colored);
  trackColor=0;output.sent.clear();clockTime+=3;pump(s);
- batch.clear();for(auto b:output.sent)if(b.size()>=8 && b[0]==240 && b[5]==10)batch.push_back(b);assert(batch==expected);
+ batch.clear();for(auto b:output.sent)if(b.size()>=8 && b[0]==240 && b[5]==10 && b[6]!=15)batch.push_back(b);assert(batch==expected);
  input.q.push(roto::sysex(10,6,{0,0}));output.sent.clear();pump(s);
  bool bankZero=false;for(auto b:output.sent)if(b==roto::sysex(10,5,{0,0}))bankZero=true;assert(bankZero);
  input.q.push(roto::sysex(12,1,{0,2,0,0}));pump(s);input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(changes==1);
@@ -266,6 +271,39 @@ int main(){
  input.q.push(roto::sysex(12,1,{0,1,0,0}));input.q.push({191,64,0});pump(s);assert(changes==beforeUnity+2);
  input.q.push(roto::sysex(12,1,{0,2,0,0}));input.q.push({191,64,0});pump(s);assert(changes==beforeUnity+2);
  input.q.push(roto::sysex(11,1));input.q.push({191,64,0});pump(s);assert(changes==beforeUnity+2);
+ // Disconnect releases host touch and old bindings; reopen changed port indices.
+ input.q.push(roto::sysex(10,6,{0,0}));
+ input.q.push(roto::sysex(12,1,{0,0,0,0}));pump(s);
+ input.q.push({191,52,127});pump(s);assert(s.GetTouchState((MediaTrack*)&fakeTrack,0));
+ int created=inputCreates,destroyed=inputDestroys,oldChanges=changes;
+ portCount=0;output.sent.clear();pump(s);
+ assert(inputDestroys==destroyed+1 && !s.GetTouchState((MediaTrack*)&fakeTrack,0));
+ assert(output.sent.empty());pump(s);assert(inputCreates==created);
+ portCount=2;portIndex=1;output.sent.clear();pump(s);
+ assert(inputCreates==created+1 && has(roto::sysex(10,1)));
+ input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(changes==oldChanges);
+ input.q.push(roto::sysex(10,2));input.q.push(roto::sysex(10,12));input.q.push(roto::sysex(12,1,{0,0,0,0}));output.sent.clear();pump(s);
+ assert(has(roto::sysex(10,4,{0,10})) && has(roto::sysex(10,8)) && hasMeter(65,115));
+ input.q.push({191,12,64});input.q.push({191,44,0});pump(s);assert(changes==oldChanges+1);
+ // A valid idle version reply leaves ports untouched. No MIDI activity needed.
+ created=inputCreates;for(int i=0;i<30;++i)pump(s);assert(inputCreates==created);
+ // Same-name/index stale handles: unanswered health query triggers reopening.
+ autoReply=false;clockTime+=2.1;s.Run();clockTime+=5.1;s.Run();
+ assert(inputDestroys==destroyed+2 && !s.GetTouchState((MediaTrack*)&fakeTrack,0));
+ clockTime+=1.1;s.Run();assert(inputCreates==created+1);autoReply=true;
+ input.q.push(roto::sysex(10,2));input.q.push(roto::sysex(10,12));input.q.push(roto::sysex(11,1));output.sent.clear();pump(s);
+ assert(has(roto::pluginDetails(0,id,true,"ReaEQ")) && has(roto::selectedTrack(0,firstName,70)));
+ int oldFxChanges=fxChanges;input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxChanges==oldFxChanges);
+ input.q.push(mapped(0,0,0,id));pump(s);input.q.push({191,12,64});input.q.push({191,44,0});pump(s);assert(fxChanges==oldFxChanges+1);
+ // Ambiguous device names never select an arbitrary controller.
+ portIndex=0;created=inputCreates;pump(s);assert(inputCreates==created);
+ portIndex=1;pump(s);assert(inputCreates==created+1);
+ input.q.push(roto::sysex(10,2));input.q.push(roto::sysex(10,12));pump(s);
+ // Partial open failures destroy the successful handle and retry later.
+ portCount=0;pump(s);openOutput=false;portCount=1;portIndex=0;
+ destroyed=inputDestroys;pump(s);assert(inputDestroys==destroyed+1);
+ openOutput=true;clockTime+=2.1;pump(s);
+ input.q.push(roto::sysex(10,2));input.q.push(roto::sysex(10,12));pump(s);
  // Shared send destinations must resolve by target, never by source-local slot.
  trackCount=10;GetTrack=+[](ReaProject*,int i)->MediaTrack*{return i>=0 && i<trackCount?(MediaTrack*)&sendTracks[i]:nullptr;};
  GetMasterTrack=+[](ReaProject*)->MediaTrack*{return (MediaTrack*)&sendTracks[9];};
@@ -326,5 +364,19 @@ int main(){
  input.q.push({191,64,0});input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(sendWrites==priorWrites);
  // Returning to Level restores volume controls after the Send mode.
  input.q.push(roto::sysex(12,1,{0,0,0,0}));pump(s);input.q.push({191,12,100});input.q.push({191,44,0});pump(s);assert(changes==priorChanges+1);
- std::cout<<"Surface mock: send destination names, routing, hardware offsets, banking, motor/touch, removal and mixer return; unity indent and touch chatter, MIX unity event, stereo meters, mixer automation callbacks, mixer regressions, plugin learn/recall, page isolation, motor/touch, instance selection/lock, removal, buttons and mixer return passed\n";
+ // Disconnect while editing a send ends its gesture exactly once.
+ routes[8]={{reverb,.5}};s.SetTrackListChange();
+ input.q.push(roto::sysex(12,1,{0,2,0,0}));pump(s);
+ input.q.push({191,52,127});input.q.push({191,12,64});input.q.push({191,44,0});pump(s);
+ ends=sendEnds;portCount=0;pump(s);assert(sendEnds==ends+1);pump(s);assert(sendEnds==ends+1);
+ // REAPER can retain/create the surface with hardware absent at startup.
+ {
+   Surface waiting(&err);assert(err==0);created=inputCreates;pump(waiting);assert(inputCreates==created);
+   portCount=1;output.sent.clear();pump(waiting);assert(inputCreates==created+1 && has(roto::sysex(10,1)));
+   // An opened but silent endpoint is periodically reopened, not abandoned.
+   clockTime+=8.1;waiting.Run();clockTime+=1.1;waiting.Run();assert(inputCreates==created+2);
+   input.q.push(roto::sysex(10,2));input.q.push(roto::sysex(10,12));input.q.push(roto::sysex(12,1,{0,0,0,0}));
+   output.sent.clear();pump(waiting);assert(has(roto::sysex(10,8)));
+ }
+ std::cout<<"Surface mock: reconnect, idle health, stale handles, ambiguous ports, partial failures, mapping recall; send destination names, routing, hardware offsets, banking, motor/touch, removal and mixer return; unity indent and touch chatter, MIX unity event, stereo meters, mixer automation callbacks, mixer regressions, plugin learn/recall, page isolation, motor/touch, instance selection/lock, removal, buttons and mixer return passed\n";
 }

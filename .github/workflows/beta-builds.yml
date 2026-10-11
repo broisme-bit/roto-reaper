@@ -45,7 +45,7 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: roto-reaper-v0.3.0-${{ matrix.platform }}
+          name: roto-reaper-v0.3.1-${{ matrix.platform }}
           path: dist/*.zip
           if-no-files-found: error
           retention-days: 30

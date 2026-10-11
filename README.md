@@ -1,4 +1,4 @@
-# Roto-Control for REAPER — v0.3.0 experimental beta
+# Roto-Control for REAPER — v0.3.1 reconnect preview
 
 An independent native REAPER control-surface extension for Melbourne Instruments Roto-Control. Uses the published Bitwig protocol personality (DAW ID 02); no Bitwig installation, bridge app or firmware modification is required. Not an official Melbourne Instruments or Cockos integration.
 
@@ -31,10 +31,10 @@ If the release has a macOS ARM64 binary asset, unzip it and use the included `re
 2. Quit REAPER. Copy `reaper_roto.dylib` into that resource folder's **UserPlugins** directory. Create the directory if needed. Keep only one copy of this extension there.
 3. Close other applications controlling Roto-Control. Connect the controller before starting REAPER.
 4. In REAPER's MIDI device preferences, disable normal input, control-input and output use of Roto-Control so the control surface owns the ports. Disable other surfaces using the same device.
-5. In **Preferences > Control/OSC/web**, add **Roto-Control REAPER (Bitwig protocol, experimental v0.3.0)**. Add it only once.
+5. In **Preferences > Control/OSC/web**, add **Roto-Control REAPER (Bitwig protocol, experimental v0.3.1 preview)**. Add it only once.
 6. On the controller select **MIX > all tracks**, **Level** and **Mute**. A Bitwig identity is expected: it is the protocol personality.
 
-There is no MIDI port selector. The extension requires exactly one input and output containing `Roto-Control`; restore original names if you have aliased them. Multiple matching devices are rejected. If absent from the surface list, check architecture, build output and installation location. Reconnection is not guaranteed: restart REAPER or remove/re-add the surface after reconnecting.
+There is no MIDI port selector. The extension requires exactly one input and output containing `Roto-Control`; restore original names if you have aliased them. Multiple matching devices are rejected. If absent from the surface list, check architecture, build output and installation location. The surface can remain installed while the controller is absent. It checks ports every 0.5 seconds and repeats the handshake after reconnecting. An idle API-version query checks the connection every 2 seconds; an unanswered query triggers reopening after 5 seconds. If REAPER itself does not rediscover the MIDI device, use its MIDI-device reset or restart REAPER. See RECONNECT-TEST.md for the hardware test checklist.
 
 ### Build from source on macOS
 

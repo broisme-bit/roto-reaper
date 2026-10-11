@@ -68,6 +68,8 @@
 #include <unordered_map>
 class Surface:public IReaperControlSurface {
  midi_Input* in=nullptr; midi_Output* out=nullptr;
+ int inputPort=-1,outputPort=-1;double portCheck=0,openedAt=0,healthNext=0,healthDeadline=0;
+ bool waitingLogged=false;
  bool plugin=false,pluginDirty=true,pluginControls=false,learning=false,pluginLocked=false;
  MediaTrack* fxTrack=nullptr;int fx=-1,firstFx=0,learnParam=-1;
  roto::Bytes publishedPluginTrack;bool pluginTrackPublished=false;
@@ -91,6 +93,34 @@ class Surface:public IReaperControlSurface {
  std::array<int,16> meterLast{};std::array<double,16> meterPeaks{};double meterNext=0;
  FILE* log=nullptr;
  void note(const char* s){if(log){std::fprintf(log,"%.3f %s\n",time_precise(),s);std::fflush(log);}}
+ void closePorts(const char* reason){
+   note(reason);endPluginEdits();clearTouch();clearBindings();metadata.clear();
+   connected=false;mix=false;plugin=false;supported=false;learning=false;pluginLocked=false;
+   pluginControls=false;pluginTrackPublished=false;pluginDirty=true;focusToken.clear();
+   pluginSnapshot.clear();params.clear();fxTrack=nullptr;fx=-1;fxToken.clear();
+   publishedCount=publishedBank=-1;sendDirty=true;reset();healthDeadline=0;
+   if(in){in->stop();in->Destroy();in=nullptr;}
+   if(out){out->Destroy();out=nullptr;}
+   inputPort=outputPort=-1;
+ }
+ void checkPorts(double now){
+   if(now<portCheck)return;
+   portCheck=now+.5;
+   int a=-1,b=-1,ac=0,bc=0;char name[256];
+   for(int i=0;i<GetNumMIDIInputs();++i)if(GetMIDIInputName(i,name,sizeof(name)) && std::strstr(name,"Roto-Control")){a=i;++ac;}
+   for(int i=0;i<GetNumMIDIOutputs();++i)if(GetMIDIOutputName(i,name,sizeof(name)) && std::strstr(name,"Roto-Control")){b=i;++bc;}
+   if(in && out && ac==1 && bc==1 && a==inputPort && b==outputPort)return;
+   if(in || out)closePorts("MIDI ports changed or unavailable; releasing connection");
+   if(ac!=1 || bc!=1){
+     if(!waitingLogged)note("Waiting for exactly one Roto-Control input/output");
+     waitingLogged=true;return;
+   }
+   in=CreateMIDIInput(a);out=CreateMIDIOutput(b,false,nullptr);
+   if(!in || !out){closePorts("Port open failed; will retry");portCheck=now+2;return;}
+   inputPort=a;outputPort=b;waitingLogged=false;in->start();
+   openedAt=retry=now;healthDeadline=0;sx(10,1);
+   note("v0.3.1 reconnect preview; Ports opened; DAW STARTED sent");
+ }
  MediaTrack* track(int i){return master?(i==0?GetMasterTrack(nullptr):nullptr):GetTrack(nullptr,bank+i);}
  void send(roto::Bytes b){if(!out)return;std::vector<unsigned char> mem(sizeof(MIDI_event_t)+b.size());auto* e=(MIDI_event_t*)mem.data();e->frame_offset=0;e->size=(int)b.size();std::memcpy(e->midi_message,b.data(),b.size());out->SendMsg(e,-1);}
  void sx(int g,int c,roto::Bytes b={}){send(roto::sysex(g,c,b));}
@@ -346,10 +376,10 @@ class Surface:public IReaperControlSurface {
  void event(MIDI_event_t* e){auto* p=e->midi_message;int n=e->size;
    if(n>=8 && p[0]==240 && p[1]==0 && p[2]==34 && p[3]==3 && p[4]==2 && p[n-1]==247){
      int g=p[5],c=p[6];
-     if(g==10 && c==2){connected=false;metadata.clear();clearTouch();clearBindings();pluginTrackPublished=false;sx(10,3,{2});note("Ping received; Bitwig ID 02 response sent");return;}
-     if(g==10 && c==12){connected=true;clearTouch();clearBindings();pluginDirty=true;pluginTrackPublished=false;publishedCount=-1;publishedBank=-1;reset();sx(10,15);sx(10,13);note("ROTO-DAW CONNECTED");return;}
+     if(g==10 && c==2){connected=false;endPluginEdits();metadata.clear();clearTouch();clearBindings();pluginTrackPublished=false;openedAt=retry=time_precise();healthDeadline=0;sx(10,3,{2});note("Ping received; Bitwig ID 02 response sent");return;}
+     if(g==10 && c==12){connected=true;healthDeadline=0;healthNext=time_precise()+2;clearTouch();clearBindings();pluginDirty=true;pluginTrackPublished=false;publishedCount=-1;publishedBank=-1;reset();sx(10,15);sx(10,13);note("ROTO-DAW CONNECTED");return;}
      if(!connected)return;
-     if(g==10 && c==16 && n>=10){char v[80];std::snprintf(v,sizeof(v),"SysEx API %u.%u",p[7],p[8]);note(v);}
+     if(g==10 && c==16 && n>=10){healthDeadline=0;char v[80];std::snprintf(v,sizeof(v),"SysEx API %u.%u",p[7],p[8]);note(v);}
      if(g==10 && c==14 && n>=11){char v[80];std::snprintf(v,sizeof(v),"Firmware %u.%u.%u",p[7],p[8],p[9]);note(v);}
      if(g==10 && c==6 && n>=10){bank=(roto::word(p+7)/8)*8;reset();char msg[100];std::snprintf(msg,sizeof(msg),"Bank requested: tracks %d-%d",bank+1,bank+8);note(msg);}
      if(g==10 && c==9 && n>=10){auto* t=master?GetMasterTrack(nullptr):GetTrack(nullptr,roto::word(p+7));if(t)SetOnlyTrackSelected(t);}
@@ -399,17 +429,13 @@ class Surface:public IReaperControlSurface {
 public:
  Surface(int* err){
    last.fill(-1);std::string path=std::string(GetResourcePath())+"/roto-reaper.log";log=std::fopen(path.c_str(),"w");
-   int a=-1,b=-1,ac=0,bc=0;char name[256];
-   for(int i=0;i<GetNumMIDIInputs();++i)if(GetMIDIInputName(i,name,sizeof(name)) && std::strstr(name,"Roto-Control")){a=i;++ac;}
-   for(int i=0;i<GetNumMIDIOutputs();++i)if(GetMIDIOutputName(i,name,sizeof(name)) && std::strstr(name,"Roto-Control")){b=i;++bc;}
-   if(ac==1) in=CreateMIDIInput(a);
-   if(bc==1) out=CreateMIDIOutput(b,false,nullptr);
-   if(err)*err=(!in?1:0)|(!out?2:0);
-   if(in && out){in->start();sx(10,1);retry=time_precise();note("v0.3.0 send levels; Ports opened; DAW STARTED sent");}else note("Port open failed or ambiguous: require exactly one Roto-Control input/output");
+   // Keep the surface installed even when hardware is absent; Run retries.
+   if(err)*err=0;
+   checkPorts(time_precise());
  }
- ~Surface(){endSendEdits();endPluginEdits();if(in){in->stop();in->Destroy();}if(out)out->Destroy();if(log)std::fclose(log);}
+ ~Surface(){closePorts("Surface closed");if(log)std::fclose(log);}
  const char* GetTypeString()override{return "ROTOREAPER";}
- const char* GetDescString()override{return "Roto-Control REAPER (Bitwig protocol, experimental v0.3.0)";}
+ const char* GetDescString()override{return "Roto-Control REAPER (Bitwig protocol, experimental v0.3.1 preview)";}
  // Keep a configuration token so REAPER can reload the saved surface entry.
  const char* GetConfigString()override{return "0";}
  bool GetTouchState(MediaTrack* t,int pan)override{if(plugin || knobMode==2 || (pan!=0 && pan!=1))return false;for(int i=0;i<8;++i)if(touch[i] && touched[i]==t && ((pan==1)==(knobMode==1)))return true;return false;}
@@ -418,9 +444,18 @@ public:
  void SetTrackListChange()override{sendDirty=true;hostVolumes.clear();hostPans.clear();reset();}
  void SetTrackTitle(MediaTrack*,const char*)override{dirty=true;sendDirty=true;}
  void Run()override{
-   if(!in || !out)return;
-   double now=time_precise();if(connected && plugin)syncPlugin();in->SwapBufsPrecise((unsigned int)(now*1000),now);int pos=0;auto* list=in->GetReadBuf();while(auto* e=list->EnumItems(&pos))event(e);
-   if(!connected){if(now-retry>3){sx(10,1);retry=now;}return;}
+   double now=time_precise();checkPorts(now);if(!in || !out)return;
+   if(connected && plugin)syncPlugin();in->SwapBufsPrecise((unsigned int)(now*1000),now);int pos=0;auto* list=in->GetReadBuf();while(auto* e=list->EnumItems(&pos))event(e);
+   if(!connected){
+     if(now-openedAt>8){closePorts("Handshake timed out; reopening MIDI ports");portCheck=now+1;return;}
+     if(now-retry>3){sx(10,1);retry=now;}return;
+   }
+   // Input/output handles have no disconnect/error API. A version reply
+   // confirms both directions still work, even when the controller is idle.
+   if(healthDeadline && now>=healthDeadline){
+     closePorts("Controller response timed out; reopening MIDI ports");portCheck=now+1;return;
+   }
+   if(!healthDeadline && now>=healthNext){healthDeadline=now+5;healthNext=now+2;sx(10,15);}
    if(plugin){syncPlugin();if(pluginDirty)pluginDetails();pluginTrackDetails();pollLearn();}
    else {if(!mix || !supported)return;if(dirty || now-refresh>2){details();refresh=now;}syncSends(now);}
    meterFeedback(now);
@@ -453,5 +488,5 @@ static IReaperControlSurface* create(const char*,const char*,int* err){return ne
 // REAPER calls this callback unconditionally when selecting the surface type.
 // This prototype has automatic port detection and no custom configuration panel.
 static HWND showConfig(const char*,HWND,const char*) { return nullptr; }
-static reaper_csurf_reg_t reg={"ROTOREAPER","Roto-Control REAPER (Bitwig protocol, experimental v0.3.0)",create,showConfig};
+static reaper_csurf_reg_t reg={"ROTOREAPER","Roto-Control REAPER (Bitwig protocol, experimental v0.3.1 preview)",create,showConfig};
 extern "C" REAPER_PLUGIN_DLL_EXPORT int REAPER_PLUGIN_ENTRYPOINT(REAPER_PLUGIN_HINSTANCE,reaper_plugin_info_t* rec){if(!rec)return 0;if(rec->caller_version!=REAPER_PLUGIN_VERSION || REAPERAPI_LoadAPI(rec->GetFunc))return 0;return rec->Register("csurf",&reg);}
