@@ -3,6 +3,35 @@
 #include <cassert>
 #include <iostream>
 int main(){
+ assert(roto::parseMappingSource(nullptr)==roto::MappingSource::Reaper);
+ assert(roto::parseMappingSource("0")==roto::MappingSource::Reaper);
+ assert(roto::parseMappingSource("source=ableton")==roto::MappingSource::Ableton);
+ assert(roto::parseMappingSource("source=unknown")==roto::MappingSource::Reaper);
+ assert(roto::parseMappingSource(roto::mappingSourceConfig(roto::MappingSource::Ableton))==roto::MappingSource::Ableton);
+ assert(roto::abletonVst3Name("VST3: UADx Pultec EQP-1A EQ (Universal Audio (UADx))")=="UADx Pultec EQP-1A EQ");
+ assert(roto::abletonVst3Name("VST3i: Synth (mono) (Vendor)")=="Synth (mono)");
+ assert(roto::abletonVst3Name("VST3: Synth")=="Synth");
+ assert(roto::abletonVst3Name("AU: Synth (Vendor)").empty());
+ const auto live=roto::abletonIdentity("UADx Pultec EQP-1A EQ");
+ assert(roto::mappingPluginHash(live)==roto::Bytes({0x3e,0x0c,3,0x36,0x22,0x63,2,0x7b}));
+ assert(roto::mappingParamHash(live,"1:49","LF Boost")==roto::Bytes({0x16,6,0x65,0x70,8,0x7c}));
+ assert(roto::mappingParamHash(live,"2:50","LF Atten")==roto::Bytes({0x51,0x4a,0x22,0x2d,0x4d,0x74}));
+ assert(roto::mappingParamHash(live,"0:48","Low Freq")==roto::Bytes({0x21,0x7d,0x16,0x75,0x27,0x5d}));
+ assert(roto::mappingParamHash(roto::pluginIdentity("reaeq"),"0","Frequency")==roto::paramHash(roto::pluginIdentity("reaeq"),"0"));
+
+ const std::string cid="ABCDEF019182FAEB554144785533414E";
+ const auto stable=roto::mappingIdentity("VST3","/Library/Audio/Plug-Ins/VST3/uaudio_pultec_eqp-1a.vst3<468507556{"+cid);
+ assert(stable=="ROTOREAPER:v2:VST3:"+cid);
+ assert(stable==roto::mappingIdentity("VST3","/some/other/plugin.vst3<123{"+cid+"}"));
+ assert(stable==roto::mappingIdentity("VST3i","C:\\Plugins\\renamed.vst3<123{abcdef019182faeb554144785533414e"));
+ assert(roto::hash(stable,8)==roto::hash(roto::mappingIdentity("VST3","renamed.vst3<999{"+cid),8));
+ assert(roto::paramHash(stable,"0:48")==roto::paramHash(roto::mappingIdentity("VST3","renamed.vst3<999{"+cid),"0:48"));
+ assert(stable!=roto::mappingIdentity("VST3","p.vst3<123{BBCDEF019182FAEB554144785533414E"));
+ assert(roto::mappingIdentity("AU","vendor: plugin")==roto::pluginIdentity("vendor: plugin"));
+ assert(roto::mappingIdentity("CLAP","p{"+cid)==roto::pluginIdentity("p{"+cid));
+ for(const auto& raw: {std::string("no-class-id"),std::string("p{ABC"),std::string("p{")+cid+"extra",std::string("p{ZBCDEF019182FAEB554144785533414E"),std::string("p{")+std::string(32,'0')})
+   assert(roto::mappingIdentity("VST3",raw)==roto::pluginIdentity(raw));
+
  assert(roto::hash("abc",8)==roto::Bytes({0x29,0x19,0x3e,0x36,0x47,0x06,0x01,0x6a}));
  roto::Bytes track;roto::word(track,8);roto::text(track,"Track Nine");track.push_back(71);track.push_back(0);
  assert(roto::selectedTrack(8,"Track Nine",71)==roto::sysex(12,4,track));

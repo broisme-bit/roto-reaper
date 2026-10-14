@@ -1,3 +1,21 @@
+# v0.4.0 validation — 2026-10-13 (user local date)
+
+Apple Silicon user hardware checks passed for UADx Pultec and FabFilter Pro-Q VST3:
+- REAPER stable class-ID identity: learn, both control directions, second instance, restart recall.
+- Ableton source: recall mapping learned in Live without REAPER LEARN, both directions, restart recall.
+- Source dropdown: persisted selection and switching back to REAPER mappings.
+- MIX/PLUGIN USB reconnect tested on the user's USB-powered setup.
+
+Automated protocol tests cover path/name-independent class IDs, malformed-ID fallback,
+source parsing, nested manufacturer names, and exact captured Ableton hashes.
+Surface mock regressions pass under REAPER and Ableton source configurations.
+Linux extension including SWELL configuration UI compiles and links. Mac CMake build
+and configuration UI passed user testing. Windows/Intel hardware remains unvalidated;
+release workflow build/test results must be checked before publishing those packages.
+The updated standalone Mac build script requires its own Mac run before relying on it.
+
+---
+
 # Current validation — 2026-10-10
 
 v0.2.7 configuration persistence passed user restart and multiple-project checks. v0.3.0 all-tracks send levels passed user Apple Silicon hardware checks: send input and motor feedback, destination routing, banking, removal and Level/Pan/plugin/restart regressions. Send automation remains unvalidated. Windows/Intel build configuration and CI are prepared; CI results and volunteer hardware testing are pending. Automated surface tests cover destination names (including a second names page), shared-target resolution with different local send orders, hardware-output offsets, missing routes, input and motor feedback, touch suppression/edit completion, banking, routing removal, buttons and return to track Level. Protocol and existing surface regressions pass.

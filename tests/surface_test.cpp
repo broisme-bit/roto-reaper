@@ -1,4 +1,5 @@
 #undef NDEBUG
+#define ROTO_SURFACE_TEST
 #include "../src/extension.cpp"
 #include <cassert>
 #include <iostream>
@@ -34,7 +35,9 @@ static std::vector<TestSend> routes[10];
 static int sendWrites=0,sendEnds=0,sendInstants=0,lastSendIndex=-1;
 static MediaTrack* lastSendTrack=nullptr;
 static int sourceIndex(MediaTrack* t){for(int i=0;i<10;++i)if(t==(MediaTrack*)&sendTracks[i])return i;return -1;}
-int main(){
+static bool liveMode=false;
+int main(int argc,char**){
+ liveMode=argc>1;
  assert(reg.ShowConfig != nullptr);
  assert(reg.ShowConfig(reg.type_string,nullptr,"") == nullptr);
  time_precise=+[](){return clockTime;};GetResourcePath=+[]()->const char*{return ".";};
@@ -53,7 +56,11 @@ int main(){
  TrackFX_GetCount=+[](MediaTrack*){return fxCount;};
  TrackFX_GetFXGUID=+[](MediaTrack* t,int index)->GUID*{return index>=0 && index<2?&(t==(MediaTrack*)&secondTrack?secondFxGuids:fxGuids)[index]:nullptr;};
  TrackFX_GetFXName=+[](MediaTrack*,int index,char* b,int){std::strcpy(b,index?"Other FX":"ReaEQ");return true;};
- TrackFX_GetNamedConfigParm=+[](MediaTrack*,int index,const char*,char* b,int){std::strcpy(b,index?"other-fx":"reaeq");return true;};
+ TrackFX_GetNamedConfigParm=+[](MediaTrack*,int index,const char* key,char* b,int){
+   if(liveMode && !std::strcmp(key,"fx_type"))std::strcpy(b,"VST3");
+   else if(liveMode && (!std::strcmp(key,"original_name") || !std::strcmp(key,"fx_name")))std::strcpy(b,index?"VST3: Other FX (Vendor)":"VST3: UADx Pultec EQP-1A EQ (Universal Audio (UADx))");
+   else std::strcpy(b,index?"other-fx":"reaeq");return true;
+ };
  TrackFX_GetEnabled=+[](MediaTrack*,int){return true;};TrackFX_SetEnabled=+[](MediaTrack*,int,bool){};
  TrackFX_GetNumParams=+[](MediaTrack*,int){return 10;};
  TrackFX_GetParamName=+[](MediaTrack*,int,int p,char* b,int size){std::snprintf(b,size,"Param %d",p);return true;};
@@ -67,7 +74,7 @@ int main(){
  SetOnlyTrackSelected=+[](MediaTrack* t){selected=t;};
  GetTouchedOrFocusedFX=+[](int mode,int* ti,int* item,int* take,int* f,int* p){*ti=mode?focusedTrack:0;*item=-1;*take=-1;*f=mode?focusedFx:lastFx;*p=mode?0:lastParam;return mode?focusActive:lastTouched;};
  GetTrackNumSends=+[](MediaTrack*,int){return 0;};
- int err=0;Surface s(&err);assert(err==0);assert(std::string(s.GetConfigString())=="0");assert(output.sent.back()==roto::sysex(10,1));
+ int err=0;Surface s(&err,liveMode?"source=ableton":"0");assert(err==0);assert(std::string(s.GetConfigString())==(liveMode?"source=ableton":"0"));assert(output.sent.back()==roto::sysex(10,1));
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(changes==0);
  input.q.push(roto::sysex(10,2));pump(s);assert(output.sent.back()==roto::sysex(10,3,{2}));
  input.q.push(roto::sysex(10,12));pump(s);assert(output.sent.back()==roto::sysex(10,13));
@@ -140,7 +147,7 @@ int main(){
  // Plugin list, learning, recall, input/output and return-to-mixer regression.
  input.q.push(roto::sysex(11,1));output.sent.clear();pump(s);
  auto has=[&](const roto::Bytes& target){return std::find(output.sent.begin(),output.sent.end(),target)!=output.sent.end();};
- const auto id=roto::pluginIdentity("reaeq");
+ const auto id=liveMode?roto::abletonIdentity("UADx Pultec EQP-1A EQ"):roto::pluginIdentity("reaeq");
  assert(has(roto::sysex(11,2,{2})) && has(roto::pluginDetails(0,id,true,"ReaEQ")) && has(roto::sysex(11,8,{0,0,0})));
  assert(has(roto::selectedTrack(0,"Drums",70)));
  auto labelBeforeSelection=[&](int index,const std::string& name){
@@ -160,14 +167,14 @@ int main(){
  trackColor=0x1000000|0xFF0000;output.sent.clear();pump(s);assert(has(roto::selectedTrack(0,"Drums renamed",71)));trackColor=0;pump(s);
 
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxChanges==0 && changes==1);
- auto mapped=[&](int param,int type,int slot,const std::string& pluginId){roto::Bytes b;roto::word(b,param);auto h=roto::paramHash(pluginId,"param"+std::to_string(param));b.insert(b.end(),h.begin(),h.end());b.push_back(type);b.push_back(slot);b.push_back(0);return roto::sysex(11,11,b);};
+ auto mapped=[&](int param,int type,int slot,const std::string& pluginId){roto::Bytes b;roto::word(b,param);auto h=roto::mappingParamHash(pluginId,"param"+std::to_string(param),"Param "+std::to_string(param));b.insert(b.end(),h.begin(),h.end());b.push_back(type);b.push_back(slot);b.push_back(0);return roto::sysex(11,11,b);};
  // Learn requires a fresh host touch/change after entering learn.
  lastTouched=true;lastParam=0;input.q.push(roto::sysex(11,9,{1}));output.sent.clear();pump(s);
  for(auto b:output.sent)assert(b.size()<7 || b[0]!=240 || b[5]!=11 || b[6]!=10);
  fxValues[0][0]=.4;output.sent.clear();pump(s);
- assert(has(roto::learnParam(0,roto::paramHash(id,"param0"),6553,"Param 0")));
+ assert(has(roto::learnParam(0,roto::mappingParamHash(id,"param0","Param 0"),6553,"Param 0")));
  input.q.push(roto::sysex(11,17,{0,0}));input.q.push(roto::sysex(11,9,{0}));input.q.push(mapped(0,0,0,id));output.sent.clear();pump(s);
- assert(has(roto::learnParam(0,roto::paramHash(id,"param0"),6553,"Param 0")));
+ assert(has(roto::learnParam(0,roto::mappingParamHash(id,"param0","Param 0"),6553,"Param 0")));
  input.q.push({191,12,64});input.q.push({191,44,0});pump(s);assert(fxChanges==1 && std::abs(fxValues[0][0]-8192/16383.0)<1e-9);
  fxValues[0][0]=.75;output.sent.clear();pump(s);int value=(int)std::lround(.75*16383);
  assert(has({191,12,(unsigned char)(value>>7)}) && has({191,44,(unsigned char)(value&127)}));
@@ -188,7 +195,7 @@ int main(){
  // Device selection clears old mappings and follows the selected instance.
  input.q.push(roto::sysex(11,7,{1}));pump(s);assert(selectedFx==1);
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxChanges==4);
- input.q.push(mapped(0,0,0,roto::pluginIdentity("other-fx")));pump(s);
+ input.q.push(mapped(0,0,0,liveMode?roto::abletonIdentity("Other FX"):roto::pluginIdentity("other-fx")));pump(s);
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxValues[1][0]==1 && fxChanges==5);
  // A replaced/deleted instance invalidates cached control bindings.
  fxGuids[1].Data1=3;input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxChanges==5);
@@ -199,7 +206,7 @@ int main(){
  input.q.push(roto::sysex(11,1));pump(s);
  // A toggle's labels are obtained without changing its value.
  toggleParam=true;input.q.push(mapped(2,1,0,id));output.sent.clear();pump(s);
- assert(has(roto::learnParam(2,roto::paramHash(id,"param2"),(int)std::lround(fxValues[0][2]*16383),"Param 2",{"Off","On"})));assert(fxChanges==5);
+ assert(has(roto::learnParam(2,roto::mappingParamHash(id,"param2","Param 2"),(int)std::lround(fxValues[0][2]*16383),"Param 2",{"Off","On"})));assert(fxChanges==5);
  toggleParam=false;
  // Exact reported trigger: focus another track's plugin without selecting its track first.
  auto previousGetTrack=GetTrack;

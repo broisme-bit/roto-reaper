@@ -1,0 +1,10 @@
+#include <windows.h>
+1001 DIALOGEX 0, 0, 268, 90
+STYLE DS_CONTROL | WS_CHILD
+FONT 8, "MS Shell Dlg"
+BEGIN
+ LTEXT "VST3 mapping source:", -1, 8, 9, 96, 12
+ COMBOBOX 1002, 110, 7, 145, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+ LTEXT "REAPER uses its own mappings. Ableton reuses Live VST3 mappings.", -1, 8, 32, 248, 22
+ LTEXT "Other plugin formats use REAPER mappings.", -1, 8, 58, 248, 22
+END

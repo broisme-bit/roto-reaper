@@ -14,6 +14,7 @@ xcrun clang++ -std=c++17 -O2 tests/protocol_test.cpp vendor/WDL/sha.cpp -o build
 ./build/protocol_test
 xcrun clang++ -std=c++17 -O2 -Wl,-undefined,dynamic_lookup tests/surface_test.cpp vendor/WDL/sha.cpp -o build/surface_test
 ./build/surface_test
-xcrun clang++ -std=c++17 -O2 -fPIC -dynamiclib -Wl,-undefined,dynamic_lookup src/extension.cpp vendor/WDL/sha.cpp -o build/reaper_roto.dylib
+./build/surface_test ableton
+xcrun clang++ -std=c++17 -O2 -fPIC -dynamiclib -Wl,-undefined,dynamic_lookup -DSWELL_PROVIDED_BY_APP src/extension.cpp src/config_ui.cpp vendor/WDL/sha.cpp vendor/WDL/swell/swell-modstub.mm -framework Cocoa -o build/reaper_roto.dylib
 codesign --force --sign - build/reaper_roto.dylib
 echo 'Built build/reaper_roto.dylib for this Mac. See README.md to install.'

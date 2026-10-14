@@ -1,4 +1,4 @@
-# Roto-Control for REAPER — v0.3.2 single-track MIX preview
+# Roto-Control for REAPER — v0.4.0
 
 An independent native REAPER control-surface extension for Melbourne Instruments Roto-Control. Uses the published Bitwig protocol personality (DAW ID 02); no Bitwig installation, bridge app or firmware modification is required. Not an official Melbourne Instruments or Cockos integration.
 
@@ -33,7 +33,7 @@ If the release has a macOS ARM64 binary asset, unzip it and use the included `re
 2. Quit REAPER. Copy `reaper_roto.dylib` into that resource folder's **UserPlugins** directory. Create the directory if needed. Keep only one copy of this extension there.
 3. Close other applications controlling Roto-Control. Connect the controller before starting REAPER.
 4. In REAPER's MIDI device preferences, disable normal input, control-input and output use of Roto-Control so the control surface owns the ports. Disable other surfaces using the same device.
-5. In **Preferences > Control/OSC/web**, add **Roto-Control REAPER (Bitwig protocol, experimental v0.3.2 preview)**. Add it only once.
+5. In **Preferences > Control/OSC/web**, add **Roto-Control REAPER v0.4.0**. Add it only once.
 6. On the controller select **MIX > all tracks**, **Level** and **Mute**. A Bitwig identity is expected: it is the protocol personality.
 
 There is no MIDI port selector. The extension requires exactly one input and output containing `Roto-Control`; restore original names if you have aliased them. Multiple matching devices are rejected. If absent from the surface list, check architecture, build output and installation location. The surface can remain installed while the controller is absent. It checks ports every 0.5 seconds and repeats the handshake after reconnecting. An idle API-version query checks the connection every 2 seconds; an unanswered query triggers reopening after 5 seconds. If REAPER itself does not rediscover the MIDI device, use its MIDI-device reset or restart REAPER. See RECONNECT-TEST.md for the hardware test checklist.
@@ -58,7 +58,11 @@ Remove this surface from **Preferences > Control/OSC/web**, quit REAPER, then re
 
 Select a track and open/focus an insert FX window, then switch Roto-Control to PLUGIN. Use LEARN on the controller to assign parameters. The controller stores assignments and recalls them when the same plugin identity is selected again, including in another project.
 
-Mappings learned with this extension have a separate REAPER identity. Mappings from other integrations are not automatically imported. VST2, VST3 and AU variants may require separate learning. Plugin updates that change parameter identities may also require relearning. The extension sends no serial configuration commands.
+In **Preferences > Control/OSC/web**, edit the Roto-Control entry and choose **VST3 mapping source: REAPER / Ableton**. The choice is saved across restarts and reconnects. REAPER is the default. Ableton mode reuses controller-stored ordinary VST3 mappings learned in Live; it does not import or convert files. Other formats continue using REAPER identities. Bitwig/Logic compatibility, Ableton AU/VST2 and macros are not included.
+
+**Upgrade note:** recognized VST3 plugins now use a path-independent REAPER identity. Existing REAPER VST3 mappings must be learned again in REAPER mode. Old setups remain stored and can be recalled with the previous extension. Other formats retain their previous identities. Selecting Ableton does not erase REAPER mappings, and switching back recalls mappings learned under the new REAPER scheme.
+
+Hardware validation on Apple Silicon covered UADx Pultec and FabFilter Pro-Q: control in both directions, REAPER mapping recall across instances/restarts, Ableton VST3 recall, saved source selection, and switching between sources. Other plugin names or parameter labels may differ between hosts. Plugin updates that change parameter identities may require relearning. The extension sends no serial configuration commands.
 
 ## Quick beta check and feedback
 
@@ -113,3 +117,35 @@ Melbourne Instruments source was consulted, not copied into the extension. Origi
 ## Experimental platform packages
 
 The Build beta packages workflow produces separate Windows x64, Intel Mac x86_64 and Apple Silicon ARM64 ZIPs after automated tests pass. Download them from the completed workflow run's Artifacts section; the downloaded artifact may wrap the release ZIP in another ZIP. These artifacts do not automatically publish a release. Intel Mac and Windows need volunteer REAPER/controller validation. Use the matching native REAPER architecture. Installation uses UserPlugins on every platform; Windows loads reaper_roto.dll and macOS loads reaper_roto.dylib.
+
+### VST3 mapping identity
+
+VST3 mappings use `ROTOREAPER:v2:VST3:<class ID>` as their hash input.
+The class ID is extracted from REAPER's `fx_ident`, normalized to uppercase,
+and used without the plugin installation path or display name. Unknown or
+malformed class-ID encodings retain the previous `ROTOREAPER:v1:` identity.
+Other formats and parameter identifier extraction are unchanged in this stage.
+
+This changes both plugin and parameter hashes for recognized VST3 plugins.
+Existing v1 VST3 mappings are not migrated or automatically recalled; learn a
+new mapping for v0.4.0. The old setup remains stored on the
+controller. Returning to the previous extension restores its old identity rules.
+This is the REAPER scheme; Ableton mode uses the separate rules below.
+
+### Mapping source
+
+In Preferences > Control/OSC/web, edit the Roto-Control entry and select the
+VST3 mapping source: REAPER or Ableton. REAPER saves this selection with the
+surface entry, across restarts and hardware reconnects. Older `0` configuration
+entries default to REAPER. Other formats retain REAPER mapping rules for now.
+
+Ableton mode hashes `PluginDevice + original plugin name` and the reverse order,
+four bytes each, and hashes parameter names to six bytes. This mirrors Melbourne's
+Live integration for ordinary VST3 plugins. REAPER's original decorated name is
+parsed to remove its format and trailing manufacturer. Name differences between
+hosts can still prevent recall. Duplicate parameter names remain ambiguous unless
+the saved index hint also resolves the matching parameter. Macro/rack mappings
+and AU/VST2 compatibility are not implemented in v0.4.0.
+
+Selecting a different source changes the mappings requested and newly learned;
+it does not convert or delete existing controller setups. Use Apply/OK to save.

@@ -66,7 +66,12 @@
 #include <memory>
 #include <deque>
 #include <unordered_map>
+#ifndef ROTO_SURFACE_TEST
+HWND rotoShowConfig(HWND parent,const char* config,REAPER_PLUGIN_HINSTANCE instance);
+static REAPER_PLUGIN_HINSTANCE rotoInstance=nullptr;
+#endif
 class Surface:public IReaperControlSurface {
+ roto::MappingSource mappingSource=roto::MappingSource::Reaper;
  midi_Input* in=nullptr; midi_Output* out=nullptr;
  int inputPort=-1,outputPort=-1;double portCheck=0,openedAt=0,healthNext=0,healthDeadline=0;
  bool waitingLogged=false;
@@ -121,7 +126,7 @@ class Surface:public IReaperControlSurface {
    if(!in || !out){closePorts("Port open failed; will retry");portCheck=now+2;return;}
    inputPort=a;outputPort=b;waitingLogged=false;in->start();
    openedAt=retry=now;healthDeadline=0;sx(10,1);
-   note("v0.3.2 single-track MIX preview (Bitwig selection fix); Ports opened; DAW STARTED sent");
+   note("v0.4.0; Ports opened; DAW STARTED sent");
  }
  int controlMode(int slot){return singleMix?(singlePage+slot==0?0:singlePage+slot==1?1:2):knobMode;}
  MediaTrack* controlTrack(int slot){return singleMix?(singleTrack && ValidatePtr2(nullptr,singleTrack,"MediaTrack*")?singleTrack:nullptr):track(slot);}
@@ -251,7 +256,16 @@ class Surface:public IReaperControlSurface {
    char id[2048]={};if(!TrackFX_GetNamedConfigParm(t,index,"fx_ident",id,sizeof(id)) || !id[0]){
      if(!TrackFX_GetNamedConfigParm(t,index,"fx_name",id,sizeof(id)) || !id[0])TrackFX_GetFXName(t,index,id,sizeof(id));
    }
-   return roto::pluginIdentity(id);
+   char type[64]={};TrackFX_GetNamedConfigParm(t,index,"fx_type",type,sizeof(type));
+   if(mappingSource==roto::MappingSource::Ableton && (std::strcmp(type,"VST3")==0 || std::strcmp(type,"VST3i")==0)){
+     char original[2048]={};
+     if(!TrackFX_GetNamedConfigParm(t,index,"original_name",original,sizeof(original)) || !original[0])
+       TrackFX_GetNamedConfigParm(t,index,"fx_name",original,sizeof(original));
+     const auto name=roto::abletonVst3Name(original);
+     if(!name.empty())return roto::abletonIdentity(name);
+     note("Ableton VST3 name unavailable; using REAPER mapping identity");
+   }
+   return roto::mappingIdentity(type,id);
  }
  std::string instance(MediaTrack* t,int index){
    auto* guid=TrackFX_GetFXGUID(t,index);if(!guid)return {};
@@ -269,7 +283,7 @@ class Surface:public IReaperControlSurface {
      for(int p=0;p<count;++p){char name[512]={},ident[512]={};TrackFX_GetParamName(fxTrack,fx,p,name,sizeof(name));
        if(!TrackFX_GetParamIdent(fxTrack,fx,p,ident,sizeof(ident)) || !ident[0])std::snprintf(ident,sizeof(ident),"index:%d",p);
        const std::string parameterId=std::strncmp(ident,"index:",6)==0?std::string(ident)+"/name:"+name:std::string(ident);
-       params.push_back({name,roto::paramHash(id,parameterId)});
+       params.push_back({name,roto::mappingParamHash(id,parameterId,name)});
      }
      firstFx=(fx/8)*8;
    }
@@ -471,7 +485,7 @@ class Surface:public IReaperControlSurface {
    }
  }
 public:
- Surface(int* err){
+ Surface(int* err,const char* config=nullptr):mappingSource(roto::parseMappingSource(config)){
    last.fill(-1);std::string path=std::string(GetResourcePath())+"/roto-reaper.log";log=std::fopen(path.c_str(),"w");
    // Keep the surface installed even when hardware is absent; Run retries.
    if(err)*err=0;
@@ -479,9 +493,9 @@ public:
  }
  ~Surface(){closePorts("Surface closed");if(log)std::fclose(log);}
  const char* GetTypeString()override{return "ROTOREAPER";}
- const char* GetDescString()override{return "Roto-Control REAPER (Bitwig protocol, experimental v0.3.2 preview)";}
+ const char* GetDescString()override{return "Roto-Control REAPER v0.4.0";}
  // Keep a configuration token so REAPER can reload the saved surface entry.
- const char* GetConfigString()override{return "0";}
+ const char* GetConfigString()override{return roto::mappingSourceConfig(mappingSource);}
  bool GetTouchState(MediaTrack* t,int pan)override{if(plugin || (pan!=0 && pan!=1))return false;for(int i=0;i<8;++i)if(touch[i] && touched[i]==t && controlMode(i)<2 && ((pan==1)==(controlMode(i)==1)))return true;return false;}
  void SetSurfaceVolume(MediaTrack* t,double value)override{if(t)hostVolumes[t]=value;}
  void SetSurfacePan(MediaTrack* t,double value)override{if(t)hostPans[t]=value;}
@@ -535,9 +549,18 @@ public:
    }
  }
 };
-static IReaperControlSurface* create(const char*,const char*,int* err){return new Surface(err);}
+static IReaperControlSurface* create(const char*,const char* config,int* err){return new Surface(err,config);}
 // REAPER calls this callback unconditionally when selecting the surface type.
-// This prototype has automatic port detection and no custom configuration panel.
-static HWND showConfig(const char*,HWND,const char*) { return nullptr; }
-static reaper_csurf_reg_t reg={"ROTOREAPER","Roto-Control REAPER (Bitwig protocol, experimental v0.3.2 preview)",create,showConfig};
-extern "C" REAPER_PLUGIN_DLL_EXPORT int REAPER_PLUGIN_ENTRYPOINT(REAPER_PLUGIN_HINSTANCE,reaper_plugin_info_t* rec){if(!rec)return 0;if(rec->caller_version!=REAPER_PLUGIN_VERSION || REAPERAPI_LoadAPI(rec->GetFunc))return 0;return rec->Register("csurf",&reg);}
+static HWND showConfig(const char*,HWND parent,const char* config) {
+#ifdef ROTO_SURFACE_TEST
+ return nullptr;
+#else
+ return rotoShowConfig(parent,config,rotoInstance);
+#endif
+}
+static reaper_csurf_reg_t reg={"ROTOREAPER","Roto-Control REAPER v0.4.0",create,showConfig};
+extern "C" REAPER_PLUGIN_DLL_EXPORT int REAPER_PLUGIN_ENTRYPOINT(REAPER_PLUGIN_HINSTANCE instance,reaper_plugin_info_t* rec){
+#ifndef ROTO_SURFACE_TEST
+rotoInstance=instance;
+#endif
+if(!rec)return 0;if(rec->caller_version!=REAPER_PLUGIN_VERSION || REAPERAPI_LoadAPI(rec->GetFunc))return 0;return rec->Register("csurf",&reg);}

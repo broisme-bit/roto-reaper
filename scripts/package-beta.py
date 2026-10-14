@@ -20,7 +20,7 @@ def main():
     p.add_argument("--binary", type=pathlib.Path, required=True)
     a=p.parse_args()
     root=pathlib.Path(__file__).resolve().parents[1]
-    version="0.3.2"
+    version="0.4.0"
     validate_binary(a.binary.read_bytes(), a.platform)
     if a.platform.startswith("macos"):
         subprocess.run(["codesign", "--force", "--sign", "-", str(a.binary)], check=True)
@@ -45,7 +45,11 @@ def main():
        There should be exactly one matching MIDI input and output.
     6. Use MIX all tracks. See README.md and SEND-TEST.md for hardware checks.
     
-    Existing learned mappings and saved control-surface configuration are retained.
+    Saved control-surface configuration is retained. Edit the surface to choose
+    VST3 mapping source: REAPER or Ableton (default: REAPER).
+    REAPER VST3 identity changed in v0.4.0: recognized VST3 plugins need new
+    learned mappings. Old controller setups are not erased or migrated.
+    Ableton compatibility covers ordinary VST3 plugins only, not AU/VST2/macros.
     Known limitation: touch OFF may arrive during a continuous physical hold,
     reproduced outside REAPER. Touch automation holds remain unreliable.
     Send automation and explicit plugin automation touch reporting are not validated.
