@@ -36,8 +36,8 @@ inline MappingSource parseMappingSource(const char* config){
  return config && std::string(config)=="source=ableton"?MappingSource::Ableton:MappingSource::Reaper;
 }
 inline const char* mappingSourceConfig(MappingSource source){return source==MappingSource::Ableton?"source=ableton":"0";}
-inline std::string abletonVst3Name(const std::string& original){
- size_t start=original.compare(0,6,"VST3: ")==0?6:original.compare(0,7,"VST3i: ")==0?7:0;
+inline std::string abletonPluginName(const std::string& original,bool au=false,bool vst2=false){
+ size_t start=vst2?(original.compare(0,5,"VST: ")==0?5:original.compare(0,6,"VSTi: ")==0?6:0):au?(original.compare(0,4,"AU: ")==0?4:original.compare(0,5,"AUi: ")==0?5:0):(original.compare(0,6,"VST3: ")==0?6:original.compare(0,7,"VST3i: ")==0?7:0);
  if(!start)return {}; // Do not guess at an unknown REAPER name encoding.
  std::string name=original.substr(start);
  if(!name.empty() && name.back()==')'){
@@ -52,11 +52,14 @@ inline std::string abletonVst3Name(const std::string& original){
  }
  return name;
 }
-inline std::string abletonIdentity(const std::string& name){return "ROTOABLETON:v1:VST3:"+name;}
-inline bool isAbletonIdentity(const std::string& id){return id.compare(0,20,"ROTOABLETON:v1:VST3:")==0;}
+inline std::string abletonIdentity(const std::string& name,bool au=false,bool vst2=false){return std::string(au?"ROTOABLETON:v1:AU:":vst2?"ROTOABLETON:v1:VST2:":"ROTOABLETON:v1:VST3:")+name;}
+inline bool isAbletonAuIdentity(const std::string& id){return id.compare(0,18,"ROTOABLETON:v1:AU:")==0;}
+inline bool isAbletonIdentity(const std::string& id){return id.compare(0,20,"ROTOABLETON:v1:VST3:")==0 || id.compare(0,20,"ROTOABLETON:v1:VST2:")==0 || isAbletonAuIdentity(id);}
 inline Bytes mappingPluginHash(const std::string& id){
  if(!isAbletonIdentity(id))return hash(id,8);
- const auto name=id.substr(20);auto b=hash("PluginDevice"+name,4),tail=hash(name+"PluginDevice",4);
+ const bool au=isAbletonAuIdentity(id);const auto name=id.substr(au?18:20);
+ const std::string deviceClass=au?"AuPluginDevice":"PluginDevice";
+ auto b=hash(deviceClass+name,4),tail=hash(name+deviceClass,4);
  b.insert(b.end(),tail.begin(),tail.end());return b;
 }
 inline Bytes mappingParamHash(const std::string& id,const std::string& ident,const std::string& name){

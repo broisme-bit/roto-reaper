@@ -1,3 +1,24 @@
+# Ableton AU/VST2 development validation — 2026-10-16 (user local date)
+
+Apple Silicon user hardware checks passed:
+- AU UADx Pultec: existing Ableton mapping recall, all three controls in both directions, restart recall.
+- AUi UADx Moog Minimoog: existing Ableton mapping recall, controls in both directions, restart recall.
+- VST2 Soundtoys Devil-Loc Deluxe: Crush, Crunch and Darkness in both directions, restart recall.
+- VST3 Pultec and VST3i Moog regression checks passed after AU support was added.
+
+VST3i Moog also passed with released v0.4.0. The reporter's failing VST3 instruments
+remain unresolved. VST2 Twin 3 naming differs between hosts; it has not passed.
+AUv3, successful VST2 instrument recall, reverse REAPER-to-Live recall and
+Windows/Intel hardware compatibility remain unvalidated.
+
+Automated protocol checks match captured AU Pultec, VST3i Moog and VST2 Devil-Loc
+identifiers and parameter hashes. Surface mock suites pass for REAPER, Ableton
+VST3, AU and VST2. Linux module compiles/links; Mac script syntax checks pass.
+User ran the Mac build script and tested the resulting development binaries.
+No release has been created for these changes.
+
+---
+
 # v0.4.0 validation — 2026-10-13 (user local date)
 
 Apple Silicon user hardware checks passed for UADx Pultec and FabFilter Pro-Q VST3:

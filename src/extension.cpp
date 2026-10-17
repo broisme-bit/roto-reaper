@@ -257,13 +257,15 @@ class Surface:public IReaperControlSurface {
      if(!TrackFX_GetNamedConfigParm(t,index,"fx_name",id,sizeof(id)) || !id[0])TrackFX_GetFXName(t,index,id,sizeof(id));
    }
    char type[64]={};TrackFX_GetNamedConfigParm(t,index,"fx_type",type,sizeof(type));
-   if(mappingSource==roto::MappingSource::Ableton && (std::strcmp(type,"VST3")==0 || std::strcmp(type,"VST3i")==0)){
+   const bool au=std::strcmp(type,"AU")==0 || std::strcmp(type,"AUi")==0;
+   const bool vst2=std::strcmp(type,"VST")==0 || std::strcmp(type,"VSTi")==0;
+   if(mappingSource==roto::MappingSource::Ableton && (au || vst2 || std::strcmp(type,"VST3")==0 || std::strcmp(type,"VST3i")==0)){
      char original[2048]={};
      if(!TrackFX_GetNamedConfigParm(t,index,"original_name",original,sizeof(original)) || !original[0])
        TrackFX_GetNamedConfigParm(t,index,"fx_name",original,sizeof(original));
-     const auto name=roto::abletonVst3Name(original);
-     if(!name.empty())return roto::abletonIdentity(name);
-     note("Ableton VST3 name unavailable; using REAPER mapping identity");
+     const auto name=roto::abletonPluginName(original,au,vst2);
+     if(!name.empty())return roto::abletonIdentity(name,au,vst2);
+     note("Ableton plugin name unavailable; using REAPER mapping identity");
    }
    return roto::mappingIdentity(type,id);
  }

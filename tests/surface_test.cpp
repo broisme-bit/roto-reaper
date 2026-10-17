@@ -35,9 +35,9 @@ static std::vector<TestSend> routes[10];
 static int sendWrites=0,sendEnds=0,sendInstants=0,lastSendIndex=-1;
 static MediaTrack* lastSendTrack=nullptr;
 static int sourceIndex(MediaTrack* t){for(int i=0;i<10;++i)if(t==(MediaTrack*)&sendTracks[i])return i;return -1;}
-static bool liveMode=false;
-int main(int argc,char**){
- liveMode=argc>1;
+static bool liveMode=false,auMode=false,vst2Mode=false;
+int main(int argc,char** argv){
+ liveMode=argc>1;auMode=liveMode && std::strcmp(argv[1],"au")==0;vst2Mode=liveMode && std::strcmp(argv[1],"vst2")==0;
  assert(reg.ShowConfig != nullptr);
  assert(reg.ShowConfig(reg.type_string,nullptr,"") == nullptr);
  time_precise=+[](){return clockTime;};GetResourcePath=+[]()->const char*{return ".";};
@@ -57,8 +57,8 @@ int main(int argc,char**){
  TrackFX_GetFXGUID=+[](MediaTrack* t,int index)->GUID*{return index>=0 && index<2?&(t==(MediaTrack*)&secondTrack?secondFxGuids:fxGuids)[index]:nullptr;};
  TrackFX_GetFXName=+[](MediaTrack*,int index,char* b,int){std::strcpy(b,index?"Other FX":"ReaEQ");return true;};
  TrackFX_GetNamedConfigParm=+[](MediaTrack*,int index,const char* key,char* b,int){
-   if(liveMode && !std::strcmp(key,"fx_type"))std::strcpy(b,"VST3");
-   else if(liveMode && (!std::strcmp(key,"original_name") || !std::strcmp(key,"fx_name")))std::strcpy(b,index?"VST3: Other FX (Vendor)":"VST3: UADx Pultec EQP-1A EQ (Universal Audio (UADx))");
+   if(liveMode && !std::strcmp(key,"fx_type"))std::strcpy(b,auMode?"AU":vst2Mode?"VST":"VST3");
+   else if(liveMode && (!std::strcmp(key,"original_name") || !std::strcmp(key,"fx_name")))std::snprintf(b,512,"%s: %s",auMode?"AU":vst2Mode?"VST":"VST3",index?"Other FX (Vendor)":"UADx Pultec EQP-1A EQ (Universal Audio (UADx))");
    else std::strcpy(b,index?"other-fx":"reaeq");return true;
  };
  TrackFX_GetEnabled=+[](MediaTrack*,int){return true;};TrackFX_SetEnabled=+[](MediaTrack*,int,bool){};
@@ -147,7 +147,7 @@ int main(int argc,char**){
  // Plugin list, learning, recall, input/output and return-to-mixer regression.
  input.q.push(roto::sysex(11,1));output.sent.clear();pump(s);
  auto has=[&](const roto::Bytes& target){return std::find(output.sent.begin(),output.sent.end(),target)!=output.sent.end();};
- const auto id=liveMode?roto::abletonIdentity("UADx Pultec EQP-1A EQ"):roto::pluginIdentity("reaeq");
+ const auto id=liveMode?roto::abletonIdentity("UADx Pultec EQP-1A EQ",auMode,vst2Mode):roto::pluginIdentity("reaeq");
  assert(has(roto::sysex(11,2,{2})) && has(roto::pluginDetails(0,id,true,"ReaEQ")) && has(roto::sysex(11,8,{0,0,0})));
  assert(has(roto::selectedTrack(0,"Drums",70)));
  auto labelBeforeSelection=[&](int index,const std::string& name){
@@ -195,7 +195,7 @@ int main(int argc,char**){
  // Device selection clears old mappings and follows the selected instance.
  input.q.push(roto::sysex(11,7,{1}));pump(s);assert(selectedFx==1);
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxChanges==4);
- input.q.push(mapped(0,0,0,liveMode?roto::abletonIdentity("Other FX"):roto::pluginIdentity("other-fx")));pump(s);
+ input.q.push(mapped(0,0,0,liveMode?roto::abletonIdentity("Other FX",auMode,vst2Mode):roto::pluginIdentity("other-fx")));pump(s);
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxValues[1][0]==1 && fxChanges==5);
  // A replaced/deleted instance invalidates cached control bindings.
  fxGuids[1].Data1=3;input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxChanges==5);
