@@ -3,6 +3,12 @@
 #include <cassert>
 #include <iostream>
 int main(){
+ assert(roto::showControlValue(0,2,"1.25 kHz")==roto::Bytes({240,0,34,3,2,10,24,0,2,'1','.','2','5',' ','k','H','z',0,0,0,0,0,247}));
+ assert(roto::showControlValue(1,7,"On")[7]==1);
+ assert(roto::showControlValue(0,8,"x").empty());
+ assert(roto::showControlValue(2,0,"x").empty());
+ assert(roto::showControlValue(0,0,"123456789012345").size()==23);
+
  const auto devil=roto::abletonIdentity(roto::abletonPluginName("VST: Devil-Loc Deluxe (Soundtoys)",false,true),false,true);
  assert(roto::mappingPluginHash(devil)==roto::Bytes({0x31,0x4f,0x0d,0x54,0x4d,0x74,0x1c,0x6a}));
  assert(roto::mappingParamHash(devil,"1","Crush")==roto::Bytes({0x43,0x77,0x0b,0x1d,0x0f,0x43}));

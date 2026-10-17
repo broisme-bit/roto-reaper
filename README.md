@@ -165,3 +165,20 @@ while the Live export uses Twin 3. Manufacturer names are not stripped from the
 start of plugin names. VST2 instrument success and AUv3 are not validated.
 REAPER-mode identities and previously implemented Ableton VST3/AU hashes are
 unchanged by adding VST2 support. No Logic compatibility is included.
+
+### Plugin value display development test
+
+Mapped plugin knobs and buttons send SHOW CONTROL VALUE (SysEx 0A 18) using
+REAPER-formatted parameter text. Formatting is polled at most 20 Hz and unchanged
+wire text is suppressed. Touching a knob redisplays its mapped knob/button values;
+button input also requests its value. Text updates continue during touch while
+motor feedback remains suppressed. Missing formatter text falls back to a labelled
+normalized percentage. Mapping/page changes clear display caches. Existing
+REAPER/Ableton mapping identities and stored setups are unchanged.
+
+User hardware checks on Apple Silicon passed formatted plugin values, mouse-change
+feedback, stationary-touch redisplay, mapped buttons and page switching. A Pultec
+Low Frequency custom step label edited in ROTO-SETUP from 120 to 100 also displayed
+correctly. This verifies that edited label, not every custom-step configuration.
+The extension does not read custom controller step-slot labels. No Logic mapping
+support is added; future Logic-compatible mappings can reuse this feedback path.

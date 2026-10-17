@@ -1,3 +1,21 @@
+# Plugin value display validation — 2026-10-17 (user local date)
+
+User reported the five planned checks passed on Apple Silicon with the Ableton
+mapping source: formatted parameter text, mouse-change feedback, redisplay on
+stationary touch, mapped button feedback and page switching. Pultec Low Frequency's
+last custom step label changed from 120 to 100 in ROTO-SETUP displayed correctly.
+That is evidence for this custom step case, not every controller configuration.
+
+Automated checks pass for exact SHOW CONTROL VALUE packets, initial recall,
+unchanged-text suppression, stationary touch without motor movement, text/units
+changes at an unchanged normalized value, formatter-failure percentage fallback,
+feedback while touched, stale-page suppression and button values. Existing
+REAPER/Ableton VST3/AU/VST2 surface suites pass. Linux module compiles/links.
+The user built and tested the Mac binary. Mapping identities are unchanged.
+No release has been published for this display addition.
+
+---
+
 # Ableton AU/VST2 development validation — 2026-10-16 (user local date)
 
 Apple Silicon user hardware checks passed:

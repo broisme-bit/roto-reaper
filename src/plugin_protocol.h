@@ -73,6 +73,11 @@ inline Bytes currentTrackName(const std::string& name){Bytes b;text(b,name);retu
 inline Bytes selectedTrack(int index,const std::string& name,int color){
  Bytes b;word(b,index);text(b,name);b.push_back((unsigned char)color);b.push_back(0);return sysex(12,4,b);
 }
+// SysEx API 1.6 section 2.23: transient formatted value, independent of motors.
+inline Bytes showControlValue(int type,int slot,const std::string& value){
+ if(type<0 || type>1 || slot<0 || slot>7)return {};
+ Bytes b={(unsigned char)type,(unsigned char)slot};text(b,value);return sysex(10,0x18,b);
+}
 inline Bytes learnParam(int wireIndex,const Bytes& h,int position,const std::string& name,const std::vector<std::string>& labels={}){
  Bytes b;word(b,wireIndex);b.insert(b.end(),h.begin(),h.end());b.push_back(0);b.push_back(0);b.push_back((unsigned char)labels.size());word(b,position);text(b,name);for(const auto& label:labels)text(b,label);return sysex(11,10,b);
 }

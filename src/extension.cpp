@@ -94,6 +94,9 @@ class Surface:public IReaperControlSurface {
  std::array<int,8> buttons{{-1,-1,-1,-1,-1,-1,-1,-1}};
  std::array<int,8> hi{},last{}; std::array<bool,8> haveHi{}; std::array<bool,8> touch{};
  std::array<MediaTrack*,8> touched{};
+ std::array<roto::Bytes,16> valueDisplayCache{};
+ std::array<bool,16> valueDisplayRequested{};
+ double valueDisplayNext=0;
  std::deque<roto::Bytes> metadata; double metadataNext=0,motorReady=0;
  // Host callbacks carry the displayed automation value, unlike D_VOL/D_PAN.
  std::unordered_map<MediaTrack*,double> hostVolumes,hostPans;
@@ -274,7 +277,7 @@ class Surface:public IReaperControlSurface {
    return std::string((const char*)guid,sizeof(GUID));
  }
  bool validFx(){return validFxTrack() && fx>=0 && fx<std::min(TrackFX_GetCount(fxTrack),127) && instance(fxTrack,fx)==fxToken;}
- void clearBindings(){knobParams.fill(-1);switchParams.fill(-1);last.fill(-1);buttons.fill(-1);haveHi.fill(false);mappingTime=-100;}
+ void clearBindings(){knobParams.fill(-1);switchParams.fill(-1);last.fill(-1);buttons.fill(-1);haveHi.fill(false);mappingTime=-100;for(auto& b:valueDisplayCache)b.clear();valueDisplayRequested.fill(false);valueDisplayNext=0;}
  void endPluginEdits(){if(validFx())for(int i:knobParams)if(i>=0 && i<(int)params.size())TrackFX_EndParamEdit(fxTrack,fx,i);}
  void selectFx(int index){
    endPluginEdits();metadata.clear();pluginTrackPublished=false;clearBindings();learning=false;learnParam=-1;params.clear();
@@ -384,7 +387,7 @@ class Surface:public IReaperControlSurface {
    int found=-1,matches=0;const int hint=roto::word(p+7);
    for(int i=0;i<(int)params.size();++i)if(std::equal(params[i].hash.begin(),params[i].hash.end(),p+9)){found=i;++matches;}
    if(matches>1)found=hint<(int)params.size() && std::equal(params[hint].hash.begin(),params[hint].hash.end(),p+9)?hint:-1;
-   auto& slots=p[15]==0?knobParams:switchParams;slots[p[16]]=found;haveHi[p[16]]=false;last[p[16]]=-1;buttons[p[16]]=-1;
+   auto& slots=p[15]==0?knobParams:switchParams;slots[p[16]]=found;valueDisplayCache[(p[15]?8:0)+p[16]].clear();haveHi[p[16]]=false;last[p[16]]=-1;buttons[p[16]]=-1;
    if(found>=0){metadata.push_back(learnMessage(found,hint));pluginControls=true;}
    char msg[120];std::snprintf(msg,sizeof(msg),"Control mapped: type=%u slot=%u parameter=%d hashMatches=%d",p[15],p[16],found,matches);note(msg);
  }
@@ -403,8 +406,26 @@ class Surface:public IReaperControlSurface {
    if(c==0x11 && n>=10){learnParam=-1;captureLearnBaseline();note("Control learned acknowledgment received");}
    return true;
  }
+ void pluginValueFeedback(){
+   const double now=time_precise();if(now<valueDisplayNext)return;
+   valueDisplayNext=now+.05; // Bound host formatting and display traffic to 20 Hz.
+   for(int index=0;index<16;++index){
+     const int slot=index%8,p=index<8?knobParams[slot]:switchParams[slot];
+     if(p<0 || p>=(int)params.size())continue;
+     const double value=TrackFX_GetParamNormalized(fxTrack,fx,p);
+     if(!std::isfinite(value))continue;
+     char formatted[512]={};
+     if(!TrackFX_FormatParamValueNormalized(fxTrack,fx,p,std::clamp(value,0.0,1.0),formatted,sizeof(formatted)) || !formatted[0])
+       std::snprintf(formatted,sizeof(formatted),"%.1f%%",100*std::clamp(value,0.0,1.0));
+     auto packet=roto::showControlValue(index<8?0:1,slot,formatted);
+     if(valueDisplayRequested[index] || packet!=valueDisplayCache[index]){
+       send(packet);valueDisplayCache[index]=std::move(packet);valueDisplayRequested[index]=false;
+     }
+   }
+ }
  void pluginFeedback(){
    if(!pluginControls || learning || !validFx())return;
+   pluginValueFeedback();
    for(int i=0;i<8;++i){int p=knobParams[i];
      if(p>=0 && p<(int)params.size()){double x=TrackFX_GetParamNormalized(fxTrack,fx,p);if(std::isfinite(x)){int v=(int)std::lround(16383*std::clamp(x,0.0,1.0));
        if(!touch[i] && last[i]!=v){send({191,(unsigned char)(12+i),(unsigned char)(v>>7)});send({191,(unsigned char)(44+i),(unsigned char)(v&127)});last[i]=v;}
@@ -455,6 +476,7 @@ class Surface:public IReaperControlSurface {
    int cc=p[1],v=p[2];
    if(cc>=28 && cc<=35 && v){if(cc==28)CSurf_OnPlay();if(cc==29)CSurf_OnStop();if(cc==30)CSurf_OnRecord();return;}
    if(cc>=52 && cc<=59){int i=cc-52;if(!v && sendEditSource[i])endSendEdit(i);touch[i]=v!=0;touchSendDestination[i]=touch[i] && !plugin && controlMode(i)==2?sendDestination(i):nullptr;touched[i]=touch[i] && !plugin?controlTrack(i):nullptr;
+     if(plugin && touch[i]){valueDisplayRequested[i]=valueDisplayRequested[i+8]=true;}
      if(plugin && !touch[i] && validFx() && knobParams[i]>=0)TrackFX_EndParamEdit(fxTrack,fx,knobParams[i]);
      char msg[100];std::snprintf(msg,sizeof(msg),"Knob %d touch %s (RX CC=%d value=%d)",i+1,touch[i]?"ON":"OFF",cc,v);note(msg);if(singleMix && !touch[i])syncSingle();return;}
    if(plugin){
@@ -462,7 +484,7 @@ class Surface:public IReaperControlSurface {
      if(cc>=12 && cc<=19){hi[cc-12]=v;haveHi[cc-12]=true;return;}
      if(cc>=44 && cc<=51){int i=cc-44,p=knobParams[i];if(!haveHi[i] || p<0 || p>=(int)params.size())return;
        TrackFX_SetParamNormalized(fxTrack,fx,p,((hi[i]<<7)|v)/16383.0);if(!touch[i])TrackFX_EndParamEdit(fxTrack,fx,p);return;}
-     if(cc>=20 && cc<=27){int p=switchParams[cc-20];if(p>=0 && p<(int)params.size()){TrackFX_SetParamNormalized(fxTrack,fx,p,v/127.0);TrackFX_EndParamEdit(fxTrack,fx,p);}return;}
+     if(cc>=20 && cc<=27){int p=switchParams[cc-20];if(p>=0 && p<(int)params.size()){TrackFX_SetParamNormalized(fxTrack,fx,p,v/127.0);valueDisplayRequested[8+cc-20]=true;TrackFX_EndParamEdit(fxTrack,fx,p);}return;}
      return;
    }
    if(!mix || !supported)return;
