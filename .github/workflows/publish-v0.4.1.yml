@@ -1,0 +1,49 @@
+name: Publish validated v0.4.1 packages
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-v0.4.1.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: publish-v0.4.1
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out validated source
+        uses: actions/checkout@v4
+        with:
+          ref: ff653afc46bc5bb7c08e5a10e2691d3f0ad55397
+      - name: Verify validated build and download its packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/broisme-bit/roto-reaper/actions/runs/40806152177 --jq .conclusion)" = success
+          test "$(gh api repos/broisme-bit/roto-reaper/actions/runs/40806152177 --jq .head_sha)" = ff653afc46bc5bb7c08e5a10e2691d3f0ad55397
+          mkdir release-assets
+          for platform in macos-arm64 macos-intel windows-x64; do
+            gh run download 40806152177 --repo broisme-bit/roto-reaper --name "roto-reaper-v0.4.1-$platform" --dir release-assets
+            test -s "release-assets/roto-reaper-v0.4.1-$platform.zip"
+            unzip -t "release-assets/roto-reaper-v0.4.1-$platform.zip"
+          done
+      - name: Publish v0.4.1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create v0.4.1 \
+            release-assets/roto-reaper-v0.4.1-macos-arm64.zip \
+            release-assets/roto-reaper-v0.4.1-macos-intel.zip \
+            release-assets/roto-reaper-v0.4.1-windows-x64.zip \
+            --repo broisme-bit/roto-reaper \
+            --target ff653afc46bc5bb7c08e5a10e2691d3f0ad55397 \
+            --title "v0.4.1 — Ableton AU/VST2 mappings and plugin value displays" \
+            --notes-file RELEASE-NOTES-v0.4.1.md \
+            --latest
