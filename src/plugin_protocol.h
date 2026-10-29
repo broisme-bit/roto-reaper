@@ -36,8 +36,8 @@ inline MappingSource parseMappingSource(const char* config){
  return config && std::string(config)=="source=ableton"?MappingSource::Ableton:MappingSource::Reaper;
 }
 inline const char* mappingSourceConfig(MappingSource source){return source==MappingSource::Ableton?"source=ableton":"0";}
-inline std::string abletonVst3Name(const std::string& original){
- size_t start=original.compare(0,6,"VST3: ")==0?6:original.compare(0,7,"VST3i: ")==0?7:0;
+inline std::string abletonPluginName(const std::string& original,bool au=false,bool vst2=false){
+ size_t start=vst2?(original.compare(0,5,"VST: ")==0?5:original.compare(0,6,"VSTi: ")==0?6:0):au?(original.compare(0,4,"AU: ")==0?4:original.compare(0,5,"AUi: ")==0?5:0):(original.compare(0,6,"VST3: ")==0?6:original.compare(0,7,"VST3i: ")==0?7:0);
  if(!start)return {}; // Do not guess at an unknown REAPER name encoding.
  std::string name=original.substr(start);
  if(!name.empty() && name.back()==')'){
@@ -52,11 +52,14 @@ inline std::string abletonVst3Name(const std::string& original){
  }
  return name;
 }
-inline std::string abletonIdentity(const std::string& name){return "ROTOABLETON:v1:VST3:"+name;}
-inline bool isAbletonIdentity(const std::string& id){return id.compare(0,20,"ROTOABLETON:v1:VST3:")==0;}
+inline std::string abletonIdentity(const std::string& name,bool au=false,bool vst2=false){return std::string(au?"ROTOABLETON:v1:AU:":vst2?"ROTOABLETON:v1:VST2:":"ROTOABLETON:v1:VST3:")+name;}
+inline bool isAbletonAuIdentity(const std::string& id){return id.compare(0,18,"ROTOABLETON:v1:AU:")==0;}
+inline bool isAbletonIdentity(const std::string& id){return id.compare(0,20,"ROTOABLETON:v1:VST3:")==0 || id.compare(0,20,"ROTOABLETON:v1:VST2:")==0 || isAbletonAuIdentity(id);}
 inline Bytes mappingPluginHash(const std::string& id){
  if(!isAbletonIdentity(id))return hash(id,8);
- const auto name=id.substr(20);auto b=hash("PluginDevice"+name,4),tail=hash(name+"PluginDevice",4);
+ const bool au=isAbletonAuIdentity(id);const auto name=id.substr(au?18:20);
+ const std::string deviceClass=au?"AuPluginDevice":"PluginDevice";
+ auto b=hash(deviceClass+name,4),tail=hash(name+deviceClass,4);
  b.insert(b.end(),tail.begin(),tail.end());return b;
 }
 inline Bytes mappingParamHash(const std::string& id,const std::string& ident,const std::string& name){
@@ -69,6 +72,11 @@ inline Bytes pluginDetails(int index,const std::string& id,bool enabled,const st
 inline Bytes currentTrackName(const std::string& name){Bytes b;text(b,name);return sysex(10,0x16,b);}
 inline Bytes selectedTrack(int index,const std::string& name,int color){
  Bytes b;word(b,index);text(b,name);b.push_back((unsigned char)color);b.push_back(0);return sysex(12,4,b);
+}
+// SysEx API 1.6 section 2.23: transient formatted value, independent of motors.
+inline Bytes showControlValue(int type,int slot,const std::string& value){
+ if(type<0 || type>1 || slot<0 || slot>7)return {};
+ Bytes b={(unsigned char)type,(unsigned char)slot};text(b,value);return sysex(10,0x18,b);
 }
 inline Bytes learnParam(int wireIndex,const Bytes& h,int position,const std::string& name,const std::vector<std::string>& labels={}){
  Bytes b;word(b,wireIndex);b.insert(b.end(),h.begin(),h.end());b.push_back(0);b.push_back(0);b.push_back((unsigned char)labels.size());word(b,position);text(b,name);for(const auto& label:labels)text(b,label);return sysex(11,10,b);

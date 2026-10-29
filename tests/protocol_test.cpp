@@ -3,15 +3,41 @@
 #include <cassert>
 #include <iostream>
 int main(){
+ assert(roto::showControlValue(0,2,"1.25 kHz")==roto::Bytes({240,0,34,3,2,10,24,0,2,'1','.','2','5',' ','k','H','z',0,0,0,0,0,247}));
+ assert(roto::showControlValue(1,7,"On")[7]==1);
+ assert(roto::showControlValue(0,8,"x").empty());
+ assert(roto::showControlValue(2,0,"x").empty());
+ assert(roto::showControlValue(0,0,"123456789012345").size()==23);
+
+ const auto devil=roto::abletonIdentity(roto::abletonPluginName("VST: Devil-Loc Deluxe (Soundtoys)",false,true),false,true);
+ assert(roto::mappingPluginHash(devil)==roto::Bytes({0x31,0x4f,0x0d,0x54,0x4d,0x74,0x1c,0x6a}));
+ assert(roto::mappingParamHash(devil,"1","Crush")==roto::Bytes({0x43,0x77,0x0b,0x1d,0x0f,0x43}));
+ assert(roto::mappingParamHash(devil,"2","Crunch")==roto::Bytes({1,0x4d,0x37,0x5f,0x6b,0x22}));
+ assert(roto::mappingParamHash(devil,"4","Darkness")==roto::Bytes({0x33,0x29,0x59,0x38,0x63,0x62}));
+ assert(roto::abletonPluginName("VSTi: FabFilter Twin 3 (FabFilter)",false,true)=="FabFilter Twin 3");
+ assert(roto::mappingPluginHash(roto::abletonIdentity("FabFilter Twin 3",false,true))!=roto::mappingPluginHash(roto::abletonIdentity("Twin 3",false,true)));
+ assert(roto::abletonPluginName("VST3: Synth (Vendor)",false,true).empty());
+
+ const auto au=roto::abletonIdentity("UADx Pultec EQP-1A EQ",true);
+ assert(roto::mappingPluginHash(au)==roto::Bytes({0x11,0x62,0x67,8,0x72,0x25,0x21,0x58}));
+ assert(roto::mappingPluginHash(au)!=roto::mappingPluginHash(roto::abletonIdentity("UADx Pultec EQP-1A EQ")));
+ assert(roto::mappingParamHash(au,"1:49","LF Boost")==roto::Bytes({0x16,6,0x65,0x70,8,0x7c}));
+ assert(roto::abletonPluginName("AU: UADx Pultec EQP-1A EQ (Universal Audio (UADx))",true)=="UADx Pultec EQP-1A EQ");
+ assert(roto::abletonPluginName("AUi: Synth (Vendor)",true)=="Synth");
+ assert(roto::abletonPluginName("VST3i: Synth (Vendor)",true).empty());
+ assert(roto::abletonPluginName("AUi: Synth (Vendor)").empty());
+ const auto moog=roto::abletonIdentity("UADx Moog Minimoog Synth");
+ assert(roto::mappingPluginHash(moog)==roto::Bytes({0x57,0x61,0x0b,0x52,0x59,0x18,0x51,0x53}));
+
  assert(roto::parseMappingSource(nullptr)==roto::MappingSource::Reaper);
  assert(roto::parseMappingSource("0")==roto::MappingSource::Reaper);
  assert(roto::parseMappingSource("source=ableton")==roto::MappingSource::Ableton);
  assert(roto::parseMappingSource("source=unknown")==roto::MappingSource::Reaper);
  assert(roto::parseMappingSource(roto::mappingSourceConfig(roto::MappingSource::Ableton))==roto::MappingSource::Ableton);
- assert(roto::abletonVst3Name("VST3: UADx Pultec EQP-1A EQ (Universal Audio (UADx))")=="UADx Pultec EQP-1A EQ");
- assert(roto::abletonVst3Name("VST3i: Synth (mono) (Vendor)")=="Synth (mono)");
- assert(roto::abletonVst3Name("VST3: Synth")=="Synth");
- assert(roto::abletonVst3Name("AU: Synth (Vendor)").empty());
+ assert(roto::abletonPluginName("VST3: UADx Pultec EQP-1A EQ (Universal Audio (UADx))")=="UADx Pultec EQP-1A EQ");
+ assert(roto::abletonPluginName("VST3i: Synth (mono) (Vendor)")=="Synth (mono)");
+ assert(roto::abletonPluginName("VST3: Synth")=="Synth");
+ assert(roto::abletonPluginName("AU: Synth (Vendor)").empty());
  const auto live=roto::abletonIdentity("UADx Pultec EQP-1A EQ");
  assert(roto::mappingPluginHash(live)==roto::Bytes({0x3e,0x0c,3,0x36,0x22,0x63,2,0x7b}));
  assert(roto::mappingParamHash(live,"1:49","LF Boost")==roto::Bytes({0x16,6,0x65,0x70,8,0x7c}));

@@ -35,9 +35,10 @@ static std::vector<TestSend> routes[10];
 static int sendWrites=0,sendEnds=0,sendInstants=0,lastSendIndex=-1;
 static MediaTrack* lastSendTrack=nullptr;
 static int sourceIndex(MediaTrack* t){for(int i=0;i<10;++i)if(t==(MediaTrack*)&sendTracks[i])return i;return -1;}
-static bool liveMode=false;
-int main(int argc,char**){
- liveMode=argc>1;
+static bool formatFails=false;static std::string displaySuffix;
+static bool liveMode=false,auMode=false,vst2Mode=false;
+int main(int argc,char** argv){
+ liveMode=argc>1;auMode=liveMode && std::strcmp(argv[1],"au")==0;vst2Mode=liveMode && std::strcmp(argv[1],"vst2")==0;
  assert(reg.ShowConfig != nullptr);
  assert(reg.ShowConfig(reg.type_string,nullptr,"") == nullptr);
  time_precise=+[](){return clockTime;};GetResourcePath=+[]()->const char*{return ".";};
@@ -57,8 +58,8 @@ int main(int argc,char**){
  TrackFX_GetFXGUID=+[](MediaTrack* t,int index)->GUID*{return index>=0 && index<2?&(t==(MediaTrack*)&secondTrack?secondFxGuids:fxGuids)[index]:nullptr;};
  TrackFX_GetFXName=+[](MediaTrack*,int index,char* b,int){std::strcpy(b,index?"Other FX":"ReaEQ");return true;};
  TrackFX_GetNamedConfigParm=+[](MediaTrack*,int index,const char* key,char* b,int){
-   if(liveMode && !std::strcmp(key,"fx_type"))std::strcpy(b,"VST3");
-   else if(liveMode && (!std::strcmp(key,"original_name") || !std::strcmp(key,"fx_name")))std::strcpy(b,index?"VST3: Other FX (Vendor)":"VST3: UADx Pultec EQP-1A EQ (Universal Audio (UADx))");
+   if(liveMode && !std::strcmp(key,"fx_type"))std::strcpy(b,auMode?"AU":vst2Mode?"VST":"VST3");
+   else if(liveMode && (!std::strcmp(key,"original_name") || !std::strcmp(key,"fx_name")))std::snprintf(b,512,"%s: %s",auMode?"AU":vst2Mode?"VST":"VST3",index?"Other FX (Vendor)":"UADx Pultec EQP-1A EQ (Universal Audio (UADx))");
    else std::strcpy(b,index?"other-fx":"reaeq");return true;
  };
  TrackFX_GetEnabled=+[](MediaTrack*,int){return true;};TrackFX_SetEnabled=+[](MediaTrack*,int,bool){};
@@ -69,7 +70,7 @@ int main(int argc,char**){
  TrackFX_SetParamNormalized=+[](MediaTrack* t,int f,int p,double v){lastFxWrite=t;++fxChanges;fxValues[f][p]=v;return true;};
  TrackFX_EndParamEdit=+[](MediaTrack*,int,int){++editEnds;return true;};
  TrackFX_GetParameterStepSizes=+[](MediaTrack*,int,int,double* step,double*,double*,bool* toggle){*step=0;*toggle=toggleParam;return toggleParam;};
- TrackFX_FormatParamValueNormalized=+[](MediaTrack*,int,int,double v,char* b,int){std::strcpy(b,v>.5?"On":"Off");return true;};
+ TrackFX_FormatParamValueNormalized=+[](MediaTrack*,int,int,double v,char* b,int size){if(formatFails)return false;std::snprintf(b,size,"%s%s",v>.5?"On":"Off",displaySuffix.c_str());return true;};
  TrackFX_Show=+[](MediaTrack*,int f,int){selectedFx=f;};
  SetOnlyTrackSelected=+[](MediaTrack* t){selected=t;};
  GetTouchedOrFocusedFX=+[](int mode,int* ti,int* item,int* take,int* f,int* p){*ti=mode?focusedTrack:0;*item=-1;*take=-1;*f=mode?focusedFx:lastFx;*p=mode?0:lastParam;return mode?focusActive:lastTouched;};
@@ -147,7 +148,7 @@ int main(int argc,char**){
  // Plugin list, learning, recall, input/output and return-to-mixer regression.
  input.q.push(roto::sysex(11,1));output.sent.clear();pump(s);
  auto has=[&](const roto::Bytes& target){return std::find(output.sent.begin(),output.sent.end(),target)!=output.sent.end();};
- const auto id=liveMode?roto::abletonIdentity("UADx Pultec EQP-1A EQ"):roto::pluginIdentity("reaeq");
+ const auto id=liveMode?roto::abletonIdentity("UADx Pultec EQP-1A EQ",auMode,vst2Mode):roto::pluginIdentity("reaeq");
  assert(has(roto::sysex(11,2,{2})) && has(roto::pluginDetails(0,id,true,"ReaEQ")) && has(roto::sysex(11,8,{0,0,0})));
  assert(has(roto::selectedTrack(0,"Drums",70)));
  auto labelBeforeSelection=[&](int index,const std::string& name){
@@ -175,27 +176,43 @@ int main(int argc,char**){
  assert(has(roto::learnParam(0,roto::mappingParamHash(id,"param0","Param 0"),6553,"Param 0")));
  input.q.push(roto::sysex(11,17,{0,0}));input.q.push(roto::sysex(11,9,{0}));input.q.push(mapped(0,0,0,id));output.sent.clear();pump(s);
  assert(has(roto::learnParam(0,roto::mappingParamHash(id,"param0","Param 0"),6553,"Param 0")));
- input.q.push({191,12,64});input.q.push({191,44,0});pump(s);assert(fxChanges==1 && std::abs(fxValues[0][0]-8192/16383.0)<1e-9);
+ // Initial recall shows value once; idle does not keep resetting the display timeout.
+ assert(has(roto::showControlValue(0,0,"Off")));
+ output.sent.clear();pump(s);assert(!has(roto::showControlValue(0,0,"Off")));
+ // A stationary touch redisplays the value without moving the motor.
+ input.q.push({191,52,127});output.sent.clear();pump(s);
+ assert(has(roto::showControlValue(0,0,"Off")));
+ for(auto b:output.sent)assert(b.size()!=3 || b[1]!=12);
+ input.q.push({191,52,0});pump(s);
+ // Refresh formatted text even if only units/format change, not normalized value.
+ displaySuffix=" Hz";output.sent.clear();pump(s);assert(has(roto::showControlValue(0,0,"Off Hz")));
+ displaySuffix.clear();pump(s);
+ formatFails=true;output.sent.clear();pump(s);assert(has(roto::showControlValue(0,0,"40.0%")));
+ formatFails=false;pump(s);
+ input.q.push({191,12,64});input.q.push({191,44,0});pump(s);assert(fxChanges==1 && std::abs(fxValues[0][0]-8192/16383.0)<1e-9);assert(has(roto::showControlValue(0,0,"On")));
  fxValues[0][0]=.75;output.sent.clear();pump(s);int value=(int)std::lround(.75*16383);
  assert(has({191,12,(unsigned char)(value>>7)}) && has({191,44,(unsigned char)(value&127)}));
+ assert(!has(roto::showControlValue(0,0,"On"))); // unchanged formatted text is suppressed
  input.q.push({191,52,127});pump(s);fxValues[0][0]=.25;output.sent.clear();pump(s);
  for(auto b:output.sent)assert(b.size()!=3 || b[1]!=12);
+ assert(has(roto::showControlValue(0,0,"Off")));
  input.q.push({191,52,0});output.sent.clear();pump(s);value=(int)std::lround(.25*16383);assert(has({191,12,(unsigned char)(value>>7)}));
  // A new mapping page clears stale slots, including missing controls.
  input.q.push(mapped(8,0,1,id));output.sent.clear();pump(s);
  for(auto b:output.sent)assert(b.size()!=3 || b[1]!=12);
+ for(const auto& b:output.sent)assert(b.size()!=23 || b[5]!=10 || b[6]!=24 || b[7]!=0 || b[8]!=0);
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxChanges==1);
  input.q.push({191,13,127});input.q.push({191,45,127});pump(s);assert(fxChanges==2 && fxValues[0][8]==1);
  // Unknown hashes leave the controller's stored mapping intact and ignore input.
  auto unknown=mapped(0,0,0,id);unknown[9]^=1;input.q.push(unknown);pump(s);
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxChanges==2);
  // Button mappings accept their actual seven-bit value.
- input.q.push(mapped(1,1,0,id));pump(s);input.q.push({191,20,127});pump(s);assert(fxValues[0][1]==1 && fxChanges==3);
+ input.q.push(mapped(1,1,0,id));pump(s);output.sent.clear();input.q.push({191,20,127});pump(s);assert(has(roto::showControlValue(1,0,"On")));assert(fxValues[0][1]==1 && fxChanges==3);
  input.q.push({191,20,0});pump(s);assert(fxValues[0][1]==0 && fxChanges==4);
  // Device selection clears old mappings and follows the selected instance.
  input.q.push(roto::sysex(11,7,{1}));pump(s);assert(selectedFx==1);
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxChanges==4);
- input.q.push(mapped(0,0,0,liveMode?roto::abletonIdentity("Other FX"):roto::pluginIdentity("other-fx")));pump(s);
+ input.q.push(mapped(0,0,0,liveMode?roto::abletonIdentity("Other FX",auMode,vst2Mode):roto::pluginIdentity("other-fx")));pump(s);
  input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxValues[1][0]==1 && fxChanges==5);
  // A replaced/deleted instance invalidates cached control bindings.
  fxGuids[1].Data1=3;input.q.push({191,12,127});input.q.push({191,44,127});pump(s);assert(fxChanges==5);

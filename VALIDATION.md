@@ -1,3 +1,74 @@
+# v0.4.1 Mac candidate final checks — 2026-10-28 (user local date)
+
+User confirmed the remaining checks passed on the built Apple Silicon candidate:
+- Formatted plugin values update from controller and mouse changes.
+- MIX, sends and transport function correctly.
+- Unplug/replug reconnects.
+- Mapping source selection and mappings survive a REAPER restart.
+
+Together with the recorded plug-in source checks and successful Mac build, this completes the requested Apple Silicon candidate validation. Windows and Intel Mac hardware remain unvalidated. CI packaging and GitHub publication are still pending; no release tag has been created.
+
+---
+
+# v0.4.1 Mac candidate plug-in checks — 2026-10-28 (user local date)
+
+User built the candidate on Apple Silicon macOS using build-mac.sh. Protocol and all four surface mock configurations passed, and the dylib was built and ad-hoc signed successfully.
+
+User then confirmed the requested plug-in test list passed on the candidate:
+- REAPER source: UADx Pultec VST3 and FabFilter Pro-Q VST3.
+- Ableton source: UADx Pultec VST3 and AU; UADx Moog Minimoog VST3i and AUi; Soundtoys Devil-Loc Deluxe VST2.
+
+This confirmation covers the supplied plug-in list, not a separately enumerated report of every display, restart, mixer, send, transport or reconnect check. Twin 3 remains excluded as a known name mismatch. Logic support remains excluded. Final basic regression confirmation and platform CI packaging are pending. No release has been published.
+
+---
+
+# v0.4.1 candidate assembly — 2026-10-28 (user local date)
+
+Prepared from commit 1f09a1e, containing Ableton AU/VST2 recall and formatted value feedback on top of v0.4.0. Experimental Logic compatibility and additional native identity changes are excluded. Native mappingIdentity code is identical to v0.4.0.
+
+Direct g++ C++17 builds passed for the protocol test, surface test, and Linux extension module. Protocol plus REAPER, Ableton VST3, AU, and VST2 surface suites all passed. Mac build script syntax and Python packaging script syntax passed. CMake/CTest are not installed in this environment, so the same suites were compiled and invoked directly. Final Mac compilation and hardware regression, and platform CI packaging, remain pending. No release tag or publication was performed.
+
+---
+
+# Plugin value display validation — 2026-10-17 (user local date)
+
+User reported the five planned checks passed on Apple Silicon with the Ableton
+mapping source: formatted parameter text, mouse-change feedback, redisplay on
+stationary touch, mapped button feedback and page switching. Pultec Low Frequency's
+last custom step label changed from 120 to 100 in ROTO-SETUP displayed correctly.
+That is evidence for this custom step case, not every controller configuration.
+
+Automated checks pass for exact SHOW CONTROL VALUE packets, initial recall,
+unchanged-text suppression, stationary touch without motor movement, text/units
+changes at an unchanged normalized value, formatter-failure percentage fallback,
+feedback while touched, stale-page suppression and button values. Existing
+REAPER/Ableton VST3/AU/VST2 surface suites pass. Linux module compiles/links.
+The user built and tested the Mac binary. Mapping identities are unchanged.
+No release has been published for this display addition.
+
+---
+
+# Ableton AU/VST2 development validation — 2026-10-16 (user local date)
+
+Apple Silicon user hardware checks passed:
+- AU UADx Pultec: existing Ableton mapping recall, all three controls in both directions, restart recall.
+- AUi UADx Moog Minimoog: existing Ableton mapping recall, controls in both directions, restart recall.
+- VST2 Soundtoys Devil-Loc Deluxe: Crush, Crunch and Darkness in both directions, restart recall.
+- VST3 Pultec and VST3i Moog regression checks passed after AU support was added.
+
+VST3i Moog also passed with released v0.4.0. The reporter's failing VST3 instruments
+remain unresolved. VST2 Twin 3 naming differs between hosts; it has not passed.
+AUv3, successful VST2 instrument recall, reverse REAPER-to-Live recall and
+Windows/Intel hardware compatibility remain unvalidated.
+
+Automated protocol checks match captured AU Pultec, VST3i Moog and VST2 Devil-Loc
+identifiers and parameter hashes. Surface mock suites pass for REAPER, Ableton
+VST3, AU and VST2. Linux module compiles/links; Mac script syntax checks pass.
+User ran the Mac build script and tested the resulting development binaries.
+No release has been created for these changes.
+
+---
+
 # v0.4.0 validation — 2026-10-13 (user local date)
 
 Apple Silicon user hardware checks passed for UADx Pultec and FabFilter Pro-Q VST3:

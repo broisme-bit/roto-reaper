@@ -1,4 +1,4 @@
-# Roto-Control for REAPER — v0.4.0
+# Roto-Control for REAPER — v0.4.1
 
 An independent native REAPER control-surface extension for Melbourne Instruments Roto-Control. Uses the published Bitwig protocol personality (DAW ID 02); no Bitwig installation, bridge app or firmware modification is required. Not an official Melbourne Instruments or Cockos integration.
 
@@ -58,7 +58,7 @@ Remove this surface from **Preferences > Control/OSC/web**, quit REAPER, then re
 
 Select a track and open/focus an insert FX window, then switch Roto-Control to PLUGIN. Use LEARN on the controller to assign parameters. The controller stores assignments and recalls them when the same plugin identity is selected again, including in another project.
 
-In **Preferences > Control/OSC/web**, edit the Roto-Control entry and choose **VST3 mapping source: REAPER / Ableton**. The choice is saved across restarts and reconnects. REAPER is the default. Ableton mode reuses controller-stored ordinary VST3 mappings learned in Live; it does not import or convert files. Other formats continue using REAPER identities. Bitwig/Logic compatibility, Ableton AU/VST2 and macros are not included.
+In **Preferences > Control/OSC/web**, edit the Roto-Control entry and choose **Plugin mapping source: REAPER / Ableton**. The choice is saved across restarts and reconnects. REAPER is the default. Ableton mode reuses controller-stored ordinary VST2, VST3 and AU mappings learned in Live; it does not import or convert files. Effects and instrument type labels are accepted. CLAP retains REAPER identities. Bitwig/Logic compatibility and rack/macro mappings are not included. VST2 instruments and AUv3 lack successful hardware validation.
 
 **Upgrade note:** recognized VST3 plugins now use a path-independent REAPER identity. Existing REAPER VST3 mappings must be learned again in REAPER mode. Old setups remain stored and can be recalled with the previous extension. Other formats retain their previous identities. Selecting Ableton does not erase REAPER mappings, and switching back recalls mappings learned under the new REAPER scheme.
 
@@ -135,17 +135,50 @@ This is the REAPER scheme; Ableton mode uses the separate rules below.
 ### Mapping source
 
 In Preferences > Control/OSC/web, edit the Roto-Control entry and select the
-VST3 mapping source: REAPER or Ableton. REAPER saves this selection with the
+Plugin mapping source: REAPER or Ableton. REAPER saves this selection with the
 surface entry, across restarts and hardware reconnects. Older `0` configuration
-entries default to REAPER. Other formats retain REAPER mapping rules for now.
+entries default to REAPER. CLAP retains REAPER mapping rules.
 
-Ableton mode hashes `PluginDevice + original plugin name` and the reverse order,
-four bytes each, and hashes parameter names to six bytes. This mirrors Melbourne's
-Live integration for ordinary VST3 plugins. REAPER's original decorated name is
-parsed to remove its format and trailing manufacturer. Name differences between
-hosts can still prevent recall. Duplicate parameter names remain ambiguous unless
-the saved index hint also resolves the matching parameter. Macro/rack mappings
-and AU/VST2 compatibility are not implemented in v0.4.0.
+Ableton mode hashes the device class plus original plugin name and the reverse
+order, four bytes each, and hashes parameter names to six bytes. VST2/VST3 use
+`PluginDevice`; AU uses `AuPluginDevice`. This mirrors Melbourne's Live integration
+for ordinary plugins. REAPER's original decorated name is parsed to remove its
+format and trailing manufacturer. Name differences between hosts can prevent
+recall. Duplicate parameter names remain ambiguous unless the saved index hint
+also resolves the matching parameter. Rack/macro mappings are not implemented.
+New mappings learned in REAPER with Ableton selected use those same rules;
+recall back in Live has not been validated.
 
 Selecting a different source changes the mappings requested and newly learned;
 it does not convert or delete existing controller setups. Use Apply/OK to save.
+
+### Ableton compatibility validation
+
+Apple Silicon hardware checks passed for AU Pultec, AUi Moog Minimoog and VST2
+Devil-Loc Deluxe: existing Live mappings recalled without REAPER LEARN, control
+in both directions and restart recall. VST3 Pultec and VST3i Moog regressions
+also passed. VST3i Moog already worked in v0.4.0; no general instrument fix is
+claimed. The separate reporter's instrument failure remains unresolved.
+
+VST2 Twin 3 is a known pending name mismatch: REAPER reports FabFilter Twin 3,
+while the Live export uses Twin 3. Manufacturer names are not stripped from the
+start of plugin names. VST2 instrument success and AUv3 are not validated.
+REAPER-mode identities and previously implemented Ableton VST3/AU hashes are
+unchanged by adding VST2 support. No Logic compatibility is included.
+
+### Plugin value display development test
+
+Mapped plugin knobs and buttons send SHOW CONTROL VALUE (SysEx 0A 18) using
+REAPER-formatted parameter text. Formatting is polled at most 20 Hz and unchanged
+wire text is suppressed. Touching a knob redisplays its mapped knob/button values;
+button input also requests its value. Text updates continue during touch while
+motor feedback remains suppressed. Missing formatter text falls back to a labelled
+normalized percentage. Mapping/page changes clear display caches. Existing
+REAPER/Ableton mapping identities and stored setups are unchanged.
+
+User hardware checks on Apple Silicon passed formatted plugin values, mouse-change
+feedback, stationary-touch redisplay, mapped buttons and page switching. A Pultec
+Low Frequency custom step label edited in ROTO-SETUP from 120 to 100 also displayed
+correctly. This verifies that edited label, not every custom-step configuration.
+The extension does not read custom controller step-slot labels. No Logic mapping
+support is added; future Logic-compatible mappings can reuse this feedback path.

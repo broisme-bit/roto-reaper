@@ -20,7 +20,7 @@ def main():
     p.add_argument("--binary", type=pathlib.Path, required=True)
     a=p.parse_args()
     root=pathlib.Path(__file__).resolve().parents[1]
-    version="0.4.0"
+    version="0.4.1"
     validate_binary(a.binary.read_bytes(), a.platform)
     if a.platform.startswith("macos"):
         subprocess.run(["codesign", "--force", "--sign", "-", str(a.binary)], check=True)

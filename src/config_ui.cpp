@@ -8,10 +8,10 @@
 #include "../vendor/WDL/swell/swell-dlggen.h"
 SWELL_DEFINE_DIALOG_RESOURCE_BEGIN2(1001,SWELL_DLG_WS_CHILD,"",268,90)
 BEGIN
- LTEXT "VST3 mapping source:", -1, 8, 9, 96, 12
+ LTEXT "Plugin mapping source:", -1, 8, 9, 96, 12
  COMBOBOX 1002, 110, 7, 145, 70, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
- LTEXT "REAPER uses its own mappings. Ableton reuses Live VST3 mappings.", -1, 8, 32, 248, 22
- LTEXT "Other plugin formats use REAPER mappings.", -1, 8, 58, 248, 22
+ LTEXT "REAPER uses its own mappings. Ableton reuses Live VST/VST3/AU mappings.", -1, 8, 32, 248, 22
+ LTEXT "CLAP uses REAPER mappings.", -1, 8, 58, 248, 22
 END
 SWELL_DEFINE_DIALOG_RESOURCE_END2(1001)
 #undef BEGIN

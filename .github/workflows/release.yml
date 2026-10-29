@@ -43,7 +43,7 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: roto-reaper-v0.4.0-${{ matrix.platform }}
+          name: roto-reaper-v0.4.1-${{ matrix.platform }}
           path: dist/*.zip
           if-no-files-found: error
           retention-days: 30
@@ -65,5 +65,5 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" release-assets/*.zip \
             --verify-tag \
-            --title "$GITHUB_REF_NAME — Ableton VST3 mapping compatibility" \
+            --title "$GITHUB_REF_NAME — Ableton AU/VST2 mappings and plugin value displays" \
             --notes-file "RELEASE-NOTES-$GITHUB_REF_NAME.md"
